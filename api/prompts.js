@@ -207,6 +207,24 @@ async function handlePost(req, res) {
     const candidates = findResult.json.results || [];
     for (const candidate of candidates) {
       try {
+        // isValidPromptRecordShape() is required BEFORE trusting a
+        // candidate as a genuine duplicate — the same discipline
+        // already applied to every other trust boundary in this app
+        // (reads, the create response, copy.js's PATCH response). A
+        // malformed/internally-inconsistent record whose stored
+        // Normalized Text happens to match could otherwise be
+        // returned as-is (diff-review round 4 P1 finding: this exact
+        // check was applied everywhere else but missed here, in the
+        // original find-existing code path). Database-membership is
+        // deliberately NOT re-checked here — this query is itself
+        // scoped to /databases/${databaseId}/query, so every result
+        // Notion returns already structurally belongs to the
+        // configured database; a separate membership check on the
+        // response would be redundant (unlike copy.js's PATCH, which
+        // operates by page id alone with no database scoping in the
+        // request itself, where the same check is genuinely load-
+        // bearing).
+        if (!isValidPromptRecordShape(candidate)) continue;
         const parsed = parseNotionPage(candidate);
         if (parsed.normalizedText === normalizedText) {
           res.status(200).json({ prompt: parsed, created: false });

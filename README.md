@@ -112,14 +112,20 @@ styling is already external (`styles.css`).
   true` is returned and a warning is shown. This only affects *browsing* —
   what you can see and scroll through, and the client-side exact-match
   hint that decides whether to show "this prompt already exists" vs.
-  "create new" as you type. **It does not affect duplicate prevention on
+  "create new" as you type. **It does not affect duplicate detection on
   create**: `POST /api/prompts` runs its own hash-based lookup directly
   against Notion, server-side, independent of what's loaded in the
   browser — so creating new prompts is never disabled just because the
   view is truncated (diff-review round 2 finding — an earlier version of
   this app incorrectly disabled creation in this state, on the mistaken
   premise that server-side duplicate detection depended on the loaded
-  window; it doesn't).
+  window; it doesn't). This server-side lookup is still the same
+  best-effort mechanism described above (capped at 10 hash-matching
+  candidates, can fail and fall through to create) — truncation simply
+  isn't an ADDITIONAL factor on top of that; it was never a genuine
+  duplicate-prevention *guarantee* either with or without a truncated
+  view (diff-review round 4 finding — earlier wording here and in
+  `index.html` overclaimed relative to this section's own disclosure).
 - **No rate limiting, per-caller audit logging, or request correlation
   IDs.** Generic Vercel platform logs are the only operational visibility.
   Considered and declined as disproportionate for a personal, Deployment-

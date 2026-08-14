@@ -271,7 +271,7 @@ test("read-then-increment-then-write: PATCH payload sets Count+1 and Last Used, 
   });
 });
 
-test("a transport-level failure on the GET (fetch throws, not just a bad status) degrades to a clean 404, never crashes (diff-review round 1 P1)", async () => {
+test("a transport-level failure on the GET (fetch throws, not just a bad status) degrades to a clean 502, never crashes and is not misreported as 404 (diff-review round 1 P1, status distinction hardened round 4 P2)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;
     global.fetch = async () => {
@@ -286,7 +286,30 @@ test("a transport-level failure on the GET (fetch throws, not just a bad status)
       });
       const res = fakeRes();
       await handler(req, res);
-      assert.equal(res.statusCode, 404);
+      // A transport failure genuinely doesn't know whether the prompt
+      // exists — reporting it as 502 (couldn't reach the database), not
+      // 404 (doesn't exist), is the round-4 fix under test here.
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("a non-404 upstream GET failure (rate-limited/5xx) degrades to a clean 502, distinct from a genuine 404 (diff-review round 4 P2)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => ({ ok: false, status: 429, json: async () => ({ message: "rate limited" }) });
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
     } finally {
       global.fetch = origFetch;
     }

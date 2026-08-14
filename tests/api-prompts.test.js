@@ -438,6 +438,47 @@ test("POST rejects a create response that fails shape validation instead of trus
   });
 });
 
+test("POST skips a shape-invalid duplicate candidate instead of trusting it, and still sets duplicateCheckIncomplete (diff-review round 4 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    // A candidate sharing the hash whose OWN Normalized Text would
+    // match the request, but whose record is internally inconsistent
+    // (Count is malformed) — must be skipped, not trusted as a
+    // genuine duplicate, and must still be treated as an unverified
+    // candidate.
+    const malformedCandidate = realDatabasePage("my new prompt", 0, "malformed-id");
+    malformedCandidate.properties.Count.number = -1;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [malformedCandidate] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "my new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.created, true);
+      assert.equal(res.body.prompt.id, "created-id"); // created fresh, NOT the malformed candidate
+      assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("POST rejects a create response that's internally consistent but represents different content than submitted (diff-review round 2 P1)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;

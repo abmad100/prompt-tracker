@@ -189,12 +189,18 @@
           // completely independent of what's loaded here; truncation
           // only affects this client-side exact-match HINT (which can
           // occasionally miss a match beyond the loaded window and
-          // suggest "create" when one already exists), never the
-          // actual duplicate-prevention guarantee — the server-side
-          // check still resolves to the existing record either way.
-          // Gating create on truncation blocked legitimate saves for
-          // no real protective benefit (diff-review round 2 P2
-          // finding — corrected here and in README.md).
+          // suggest "create" when one already exists). Gating create
+          // on truncation blocked legitimate saves for no real
+          // protective benefit specific to truncation (diff-review
+          // round 2 P2 finding — corrected here and in README.md).
+          // NOTE: the server-side check itself is still best-effort,
+          // not a guarantee, independent of truncation entirely — see
+          // README.md's "Known limitations" (capped at 10 hash-
+          // matching candidates; can fail and fall through to create
+          // rather than block the save). Worded precisely rather than
+          // "always resolves to the existing record" (diff-review
+          // round 4 P2 finding — the original wording here overclaimed
+          // relative to README.md's own correct disclosure).
           clearChildren(createBtn);
           createBtn.appendChild(
             textEl("span", '+ Create new prompt with this text')

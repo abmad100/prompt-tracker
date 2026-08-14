@@ -333,6 +333,32 @@ test("readBodyWithLimit rejects with BodyReadError on a stream error, exactly on
   await assert.rejects(promise, notion.BodyReadError);
 });
 
+test("readBodyWithLimit rejects (doesn't hang forever) when the client aborts mid-upload, before end (diff-review round 4 P2)", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 1000);
+  req.emit("data", Buffer.from("partial body, then the client vanishes"));
+  req.emit("aborted");
+  await assert.rejects(promise, notion.BodyReadError);
+});
+
+test("readBodyWithLimit rejects (doesn't hang forever) when the connection closes before end (diff-review round 4 P2)", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 1000);
+  req.emit("data", Buffer.from("partial body"));
+  req.emit("close");
+  await assert.rejects(promise, notion.BodyReadError);
+});
+
+test("readBodyWithLimit's normal completion is unaffected by a 'close' firing after 'end' (no double-settle, no spurious rejection)", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 1000);
+  req.emit("data", Buffer.from('{"text":"hi"}'));
+  req.emit("end");
+  req.emit("close"); // fires after 'end' in Node's real stream lifecycle
+  const body = await promise;
+  assert.equal(body, '{"text":"hi"}');
+});
+
 // ---------------------------------------------------------------------
 // expectedOrigin / isSameOrigin — the round-13 self-caught bug's own
 // regression test: VERCEL_URL is a bare host, Origin is scheme-qualified

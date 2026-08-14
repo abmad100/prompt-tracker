@@ -100,8 +100,26 @@ module.exports = async function handler(req, res) {
   });
   const page = getResult.json;
 
-  if (!getResult.ok || !page) {
+  // Only a genuine Notion 404 is reported as "not found" — Notion's
+  // own API deliberately returns 404 (not 403) both for a truly
+  // nonexistent page AND one the integration lacks access to, so this
+  // still correctly covers the access-denied case too. Every OTHER
+  // failure (transport error, 429, 5xx) previously collapsed into the
+  // same bare 404, misrepresenting an outage/rate-limit as "this
+  // prompt doesn't exist" (diff-review round 4 P2 finding) — those
+  // now map to 502 instead, matching how every other Notion-call
+  // failure in this app is already reported.
+  if (getResult.status === 404) {
     res.status(404).json({ error: "Prompt not found." });
+    return;
+  }
+  if (!getResult.ok || !page) {
+    console.error(
+      "Notion page retrieval (copy) failed",
+      getResult.status,
+      getResult.json && getResult.json.message
+    );
+    res.status(502).json({ error: "Failed to reach the prompt database." });
     return;
   }
 
