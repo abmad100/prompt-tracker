@@ -108,7 +108,17 @@ enforcement chain.
 
 **`index.html`** — library view (rows sorted by count, ~60-char preview,
 visible notes for `skippedCount`/`truncated`; "+ Create new" disabled +
-warning when truncated), live search, active-prompt panel or create-new
+warning when truncated ⚠️ **CORRECTED, diff-review round 3 P2**: this
+premise turned out to be factually wrong, not just a design choice — the
+POST /api/prompts duplicate check queries Notion directly by hash,
+server-side, entirely independent of what's loaded here (see this
+document's own §`api/prompts.js` description below). The SHIPPED
+behavior does NOT disable creation when truncated; only the
+`skippedCount`/`truncated` warning notes remain as originally planned.
+See README.md's "Known limitations" section for the corrected,
+accurate description. This line is left as-is for historical record of
+what was originally converged, not retroactively rewritten.), live
+search, active-prompt panel or create-new
 affordance, Copy button (await clipboard → on success, await POST →
 "Copied!" or "Copied! (tracking failed)"; optimistic count reconciliation;
 disabled while in-flight); a brief note when a create response carries

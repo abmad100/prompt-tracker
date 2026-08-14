@@ -31,6 +31,21 @@ function normalizeDbId(id) {
   return (id || "").replace(/-/g, "").toLowerCase();
 }
 
+// Shared by both the GET (fetch the target) and PATCH (confirm the
+// update) response checks — a page in the wrong database is rejected
+// identically at either point (diff-review round 3 P1 finding: the
+// PATCH response wasn't checked against the database at all).
+function belongsToConfiguredDatabase(page) {
+  const pageDbId =
+    page && page.parent && page.parent.type === "database_id"
+      ? page.parent.database_id
+      : null;
+  return Boolean(
+    pageDbId &&
+      normalizeDbId(pageDbId) === normalizeDbId(process.env.NOTION_DATABASE_ID)
+  );
+}
+
 // Wraps the fetch call itself (network-level failures throw inside
 // fetch(), not as a rejected/non-2xx response — diff-review round 1 P1
 // finding, same class as api/prompts.js's notionRequest). Converts any
@@ -93,14 +108,7 @@ module.exports = async function handler(req, res) {
   // Database-ownership check: the page must genuinely belong to this
   // app's own configured database, not just be some other page the
   // integration happens to be able to reach.
-  const pageDbId =
-    page.parent && page.parent.type === "database_id"
-      ? page.parent.database_id
-      : null;
-  if (
-    !pageDbId ||
-    normalizeDbId(pageDbId) !== normalizeDbId(process.env.NOTION_DATABASE_ID)
-  ) {
+  if (!belongsToConfiguredDatabase(page)) {
     res.status(404).json({ error: "Prompt not found." });
     return;
   }
@@ -150,21 +158,40 @@ module.exports = async function handler(req, res) {
   // documented, accepted read-modify-write concurrency limitation (a
   // genuinely concurrent second write can still land after this one) —
   // it only ensures a SUCCESSFUL response is never based on an
-  // unvalidated or self-inconsistent PATCH result.
-  if (!isValidPromptRecordShape(patchResult.json)) {
+  // unvalidated, wrong-page, or self-inconsistent PATCH result.
+  //
+  // Round 2's version of this check only verified general shape and
+  // non-null count/lastUsed — not that the response is genuinely THE
+  // SAME page (round 3 P1 finding), still in the configured database,
+  // or that it reflects EXACTLY the increment/timestamp this request
+  // asked for (an unrelated-but-shape-valid response could otherwise
+  // have been silently trusted and its own count/timestamp reported as
+  // if they were this request's own result).
+  const patchedPage = patchResult.json;
+  if (
+    !patchedPage ||
+    // isValidPageId() accepts both hyphenated and non-hyphenated `id`
+    // query values, but Notion's own response always uses the
+    // hyphenated canonical form — normalize both sides (normalizeDbId
+    // just strips hyphens/lowercases, works for any Notion object id,
+    // not only database ids) before comparing.
+    normalizeDbId(patchedPage.id) !== normalizeDbId(id) ||
+    !belongsToConfiguredDatabase(patchedPage) ||
+    !isValidPromptRecordShape(patchedPage)
+  ) {
     console.error(
-      "Notion page update (copy) returned a record that failed shape validation",
-      patchResult.json && patchResult.json.id
+      "Notion page update (copy) returned an unexpected or invalid record",
+      patchedPage && patchedPage.id
     );
     res.status(502).json({ error: "Failed to confirm the usage count update." });
     return;
   }
 
-  const patched = parseNotionPage(patchResult.json);
-  if (patched.count === null || !patched.lastUsed) {
+  const patched = parseNotionPage(patchedPage);
+  if (patched.count !== currentCount + 1 || patched.lastUsed !== ts) {
     console.error(
-      "Notion page update (copy) response is missing count/lastUsed",
-      patchResult.json && patchResult.json.id
+      "Notion page update (copy) response does not match the requested update",
+      patchedPage.id
     );
     res.status(502).json({ error: "Failed to confirm the usage count update." });
     return;

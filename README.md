@@ -80,6 +80,17 @@ judged not proportionate to the risk it would close.
 - If you ever want to share this tool beyond your own account, add a real
   application-level auth layer first.
 
+**Response headers** (`vercel.json`): `X-Frame-Options: DENY` and a CSP
+`frame-ancestors 'none'` block this deployment from being embedded in an
+iframe on another site — closing a clickjacking risk that matters
+specifically because this app's whole access boundary is "your own
+authenticated browser session" (diff-review round 3 finding). The CSP's
+`script-src` includes `'unsafe-inline'` because `index.html`'s app logic is
+a single inline `<script>` block, not an external file — a deliberate,
+proportionate tradeoff for this round rather than restructuring the app
+to enable a stricter policy; `style-src` has no such exception, since all
+styling is already external (`styles.css`).
+
 ## Known limitations (accepted, not bugs)
 
 - **Copy-count updates are read-modify-write, not atomic.** Two genuinely

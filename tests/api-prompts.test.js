@@ -236,7 +236,7 @@ test("POST rejects a cross-origin request (CSRF)", async () => {
   });
 });
 
-test("POST rejects a body over the 100KB limit with 413, via streaming enforcement", async () => {
+test("POST rejects a body over the 100KB limit with 413, via streaming enforcement, WITHOUT destroying the request (diff-review round 3 P1)", async () => {
   await withEnv(ENV, async () => {
     delete require.cache[require.resolve("../api/prompts.js")];
     const handler = require("../api/prompts.js");
@@ -251,6 +251,9 @@ test("POST rejects a body over the 100KB limit with 413, via streaming enforceme
     });
     await p;
     assert.equal(res.statusCode, 413);
+    // req.destroy() tears down the underlying connection this same
+    // 413 is meant to be sent back over — must never be called.
+    assert.equal(req._destroyed, undefined);
   });
 });
 

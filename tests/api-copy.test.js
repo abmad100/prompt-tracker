@@ -47,7 +47,13 @@ function withEnv(vars, fn) {
   })();
 }
 
-function realPage({ promptText = "hello world", count = 3, dbId = "db-1234-hyphen", id = "abcdef12-3456-7890-abcd-ef1234567890" } = {}) {
+function realPage({
+  promptText = "hello world",
+  count = 3,
+  dbId = "db-1234-hyphen",
+  id = "abcdef12-3456-7890-abcd-ef1234567890",
+  lastUsedIso = null,
+} = {}) {
   const normalized = promptText.trim().toLowerCase();
   const hash = crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
   return {
@@ -63,7 +69,7 @@ function realPage({ promptText = "hello world", count = 3, dbId = "db-1234-hyphe
       // Notion date property always carries the "date" key, even when
       // unset. Required now that isValidPromptRecordShape enforces its
       // presence (diff-review round 1 P1 finding).
-      "Last Used": { date: null },
+      "Last Used": { date: lastUsedIso ? { start: lastUsedIso } : null },
     },
   };
 }
@@ -321,6 +327,155 @@ test("every response carries Cache-Control: no-store, set before the method chec
     await handler(req, res);
     assert.equal(res.statusCode, 405); // GET is rejected...
     assert.equal(res.headers["Cache-Control"], "no-store"); // ...but the header is still set
+  });
+});
+
+test("rejects (502) a PATCH response for a DIFFERENT page id, even if otherwise shape-valid (diff-review round 3 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Echo back the request's OWN exact count/timestamp on a
+        // DIFFERENT page id — so this test genuinely isolates the id
+        // check: every other check (shape, exact count, exact
+        // timestamp) would pass if the id check didn't exist (self-
+        // caught during round-3 mutation testing: an earlier version
+        // of this fixture used a hardcoded, non-matching Last Used, so
+        // it accidentally passed via the exact-timestamp check
+        // instead of the id check it was meant to prove).
+        const sentBody = JSON.parse(opts.body);
+        const other = realPage({ id: "11111111-2222-3333-4444-555555555555" });
+        other.properties.Count = { number: sentBody.properties.Count.number };
+        other.properties["Last Used"] = {
+          date: { start: sentBody.properties["Last Used"].date.start },
+        };
+        return { ok: true, status: 200, json: async () => other };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("rejects (502) a PATCH response from a DIFFERENT database (diff-review round 3 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Echo back the request's OWN exact count/timestamp on the
+        // right page id but a DIFFERENT database — isolates the
+        // database-membership check specifically (self-caught during
+        // round-3 mutation testing: a hardcoded, non-matching Last
+        // Used here would let this test pass via the exact-timestamp
+        // check instead of the database check it's meant to prove).
+        const sentBody = JSON.parse(opts.body);
+        const other = realPage({ id: VALID_ID, dbId: "some-other-database-id" });
+        other.properties.Count = { number: sentBody.properties.Count.number };
+        other.properties["Last Used"] = {
+          date: { start: sentBody.properties["Last Used"].date.start },
+        };
+        return { ok: true, status: 200, json: async () => other };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("rejects (502) a PATCH response whose count doesn't equal currentCount+1 exactly (diff-review round 3 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Shape-valid, right page/database, right Last Used shape —
+        // but the count is 6, not the expected 5 (e.g. a concurrent
+        // write already landed a different value).
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...page,
+            properties: { ...page.properties, Count: { number: 6 }, "Last Used": { date: { start: "2026-08-14T10:00:00.000Z" } } },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("rejects (502) a PATCH response whose Last Used doesn't exactly match the timestamp this request sent (diff-review round 3 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Right id/database/count — but a stale/different Last Used
+        // than the timestamp this specific request generated.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...page,
+            properties: { ...page.properties, Count: { number: 5 }, "Last Used": { date: { start: "2020-01-01T00:00:00.000Z" } } },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
   });
 });
 

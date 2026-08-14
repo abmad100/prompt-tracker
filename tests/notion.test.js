@@ -301,12 +301,27 @@ test("readBodyWithLimit resolves with the full body under the limit", async () =
   assert.equal(body, '{"text":"hi"}');
 });
 
-test("readBodyWithLimit rejects with PayloadTooLargeError and destroys the stream on overflow", async () => {
+test("readBodyWithLimit rejects with PayloadTooLargeError on overflow, WITHOUT destroying the stream (diff-review round 3 P1)", async () => {
   const req = fakeReq();
   const promise = notion.readBodyWithLimit(req, 10);
   req.emit("data", Buffer.from("this is definitely more than ten bytes"));
   await assert.rejects(promise, notion.PayloadTooLargeError);
-  assert.equal(req._destroyed, true);
+  // req.destroy() tears down the connection the caller's own response
+  // needs to be sent back over — must never be called (previously WAS
+  // called here; the pre-fix code genuinely destroyed the stream).
+  assert.equal(req._destroyed, undefined);
+});
+
+test("readBodyWithLimit keeps ignoring further data after overflow, without pushing it into the buffered result (memory stays bounded without destroying anything)", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 10);
+  req.emit("data", Buffer.from("this is definitely more than ten bytes"));
+  await assert.rejects(promise, notion.PayloadTooLargeError);
+  // A further chunk arriving after rejection (the stream draining
+  // naturally, since it's no longer destroyed) must be silently
+  // ignored, not somehow reopen or double-settle the promise.
+  assert.doesNotThrow(() => req.emit("data", Buffer.from("more bytes after rejection")));
+  assert.doesNotThrow(() => req.emit("end"));
 });
 
 test("readBodyWithLimit rejects with BodyReadError on a stream error, exactly once", async () => {
