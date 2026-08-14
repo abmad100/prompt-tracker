@@ -457,3 +457,52 @@ test("isValidPageId rejects garbage", () => {
   assert.equal(notion.isValidPageId(""), false);
   assert.equal(notion.isValidPageId(null), false);
 });
+
+// ---------------------------------------------------------------------
+// isValidQueryResponseShape (diff-review round 5 P1)
+// ---------------------------------------------------------------------
+
+test("isValidQueryResponseShape accepts a genuine empty result set", () => {
+  assert.equal(notion.isValidQueryResponseShape({ results: [], has_more: false }), true);
+});
+
+test("isValidQueryResponseShape accepts a genuine non-empty page with has_more:false", () => {
+  assert.equal(
+    notion.isValidQueryResponseShape({ results: [{ id: "a" }], has_more: false }),
+    true
+  );
+});
+
+test("isValidQueryResponseShape accepts has_more:true with a real next_cursor", () => {
+  assert.equal(
+    notion.isValidQueryResponseShape({ results: [{ id: "a" }], has_more: true, next_cursor: "abc123" }),
+    true
+  );
+});
+
+test("isValidQueryResponseShape rejects a null/undefined response", () => {
+  assert.equal(notion.isValidQueryResponseShape(null), false);
+  assert.equal(notion.isValidQueryResponseShape(undefined), false);
+});
+
+test("isValidQueryResponseShape rejects a missing results field", () => {
+  assert.equal(notion.isValidQueryResponseShape({}), false);
+});
+
+test("isValidQueryResponseShape rejects a non-array results field", () => {
+  assert.equal(notion.isValidQueryResponseShape({ results: null }), false);
+  assert.equal(notion.isValidQueryResponseShape({ results: "oops" }), false);
+  assert.equal(notion.isValidQueryResponseShape({ results: {} }), false);
+});
+
+test("isValidQueryResponseShape rejects has_more:true with a missing/empty next_cursor", () => {
+  assert.equal(notion.isValidQueryResponseShape({ results: [], has_more: true }), false);
+  assert.equal(
+    notion.isValidQueryResponseShape({ results: [], has_more: true, next_cursor: "" }),
+    false
+  );
+  assert.equal(
+    notion.isValidQueryResponseShape({ results: [], has_more: true, next_cursor: null }),
+    false
+  );
+});

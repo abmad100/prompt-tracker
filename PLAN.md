@@ -107,18 +107,10 @@ includes new count. **Mode 2**: `tests/api-copy.test.js` — full
 enforcement chain.
 
 **`index.html`** — library view (rows sorted by count, ~60-char preview,
-visible notes for `skippedCount`/`truncated`; "+ Create new" disabled +
-warning when truncated ⚠️ **CORRECTED, diff-review round 3 P2**: this
-premise turned out to be factually wrong, not just a design choice — the
-POST /api/prompts duplicate check queries Notion directly by hash,
-server-side, entirely independent of what's loaded here (see this
-document's own §`api/prompts.js` description below). The SHIPPED
-behavior does NOT disable creation when truncated; only the
-`skippedCount`/`truncated` warning notes remain as originally planned.
-See README.md's "Known limitations" section for the corrected,
-accurate description. This line is left as-is for historical record of
-what was originally converged, not retroactively rewritten.), live
-search, active-prompt panel or create-new
+visible notes for `skippedCount`/`truncated`; creation is NOT disabled
+when truncated — see "Revisions since implementation" below for why
+this differs from the original rev-15 plan), live search, active-prompt
+panel or create-new
 affordance, Copy button (await clipboard → on success, await POST →
 "Copied!" or "Copied! (tracking failed)"; optimistic count reconciliation;
 disabled while in-flight); a brief note when a create response carries
@@ -159,3 +151,29 @@ Small, mostly-sequential build; no genuine parallel-session opportunity.
 `tests/matching.test.js`, `tests/notion.test.js`,
 `tests/api-prompts.test.js`, `tests/api-copy.test.js` — zero-dependency
 `node:test`, `node --test tests/`, no `npm install` required.
+
+## Revisions since implementation
+
+This plan converged (rev 15) before any code was written, per the
+governing Standard's Step 2 process. The sections above describe that
+converged design and are otherwise left as the historical record —
+this section is the one place documenting where the SHIPPED code
+deliberately diverges from it, found and fixed during the Step 4/§10
+diff-review loop (full round-by-round detail in the workstream LL doc:
+https://drive.google.com/file/d/1oCtGaFrMtgB_MC6Lc9q4SesuY5EXvXga/view).
+
+- **`index.html`'s create-on-truncation gate (rev-15 plan, line
+  110-111 originally): REMOVED, diff-review round 2.** The plan
+  specified disabling "+ Create new" whenever the library view was
+  truncated, on the premise that server-side duplicate detection
+  "can't see beyond the loaded window." That premise was factually
+  wrong, not a design tradeoff — `POST /api/prompts`'s duplicate check
+  queries Notion directly by hash, server-side, entirely independent
+  of what's loaded in the browser (see this document's own
+  `api/prompts.js` description above). This specific detail was never
+  itself surfaced to Mose as an explicit tradeoff decision the way the
+  auth-model and copy-count-atomicity decisions were (see those
+  sections' own "Closed by authority decision" framing) — it was
+  disposed of within the diff-review loop's own authority as a genuine
+  implementation-level defect. See README.md's "Known limitations"
+  section for the current, accurate description.

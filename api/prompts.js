@@ -20,6 +20,7 @@ const {
   nowIso,
   isValidPageId,
   buildListQuery,
+  isValidQueryResponseShape,
   buildCreatePayload,
   buildFindByHashQuery,
   parseNotionPage,
@@ -88,7 +89,20 @@ async function handleGet(req, res) {
       res.status(502).json({ error: "Failed to reach the prompt database." });
       return;
     }
-    for (const rawPage of json.results || []) {
+    // A transport-successful but malformed response (missing/non-array
+    // results, or has_more:true with no usable next_cursor) is treated
+    // the same as a failed call — not silently accepted as "zero
+    // results this page," which for the has_more case could otherwise
+    // omit start_cursor on the next request and re-fetch page one
+    // forever (diff-review round 5 P1 finding).
+    if (!isValidQueryResponseShape(json)) {
+      console.error("Notion query-database returned a malformed response shape", status);
+      res.status(502).json({ error: "Failed to reach the prompt database." });
+      return;
+    }
+    // json.results is now guaranteed to be a real array by the shape
+    // check above — no `|| []` fallback needed here anymore.
+    for (const rawPage of json.results) {
       try {
         if (!isValidPromptRecordShape(rawPage)) {
           skippedCount++;
@@ -203,8 +217,12 @@ async function handlePost(req, res) {
   );
 
   let duplicateCheckIncomplete = false;
-  if (findResult.ok && findResult.json) {
-    const candidates = findResult.json.results || [];
+  // A malformed-but-transport-successful response (missing/non-array
+  // results) is routed through the same "couldn't verify" path as a
+  // real transport/HTTP failure below — not silently treated as
+  // "genuinely zero candidates" (diff-review round 5 P1 finding).
+  if (findResult.ok && findResult.json && isValidQueryResponseShape(findResult.json)) {
+    const candidates = findResult.json.results;
     for (const candidate of candidates) {
       try {
         // isValidPromptRecordShape() is required BEFORE trusting a
@@ -241,8 +259,13 @@ async function handlePost(req, res) {
       duplicateCheckIncomplete = true;
     }
   } else {
+    // Covers both a real transport/HTTP failure (findResult.ok false)
+    // and a transport-successful-but-malformed-shape response (status
+    // will read a normal 2xx with no upstream message in that case —
+    // distinguishable in the log from a genuine failure by status
+    // alone, if ever needed).
     console.error(
-      "Notion duplicate-lookup query failed",
+      "Notion duplicate-lookup query failed or returned a malformed shape",
       findResult.status,
       findResult.json && findResult.json.message
     );

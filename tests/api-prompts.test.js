@@ -177,6 +177,88 @@ test("GET marks truncated when the page cap is hit with more remaining", async (
   });
 });
 
+test("GET rejects (502) a malformed query response (non-array results) instead of crashing on a non-iterable for...of (diff-review round 5 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ results: {} }), // truthy, non-array, non-iterable
+    });
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("GET rejects (502) has_more:true with no usable next_cursor instead of silently re-fetching page one forever (diff-review round 5 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    let calls = 0;
+    global.fetch = async () => {
+      calls++;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [], has_more: true }), // no next_cursor at all
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+      // Must fail on the FIRST malformed response, not loop up to
+      // MAX_PAGES re-requesting the same (cursor-less) page 1.
+      assert.equal(calls, 1);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST falls through to create with duplicateCheckIncomplete when the lookup response has a malformed (non-array) results field (diff-review round 5 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: null }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "my new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.created, true);
+      assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("POST rejects wrong Content-Type without reading the body", async () => {
   await withEnv(ENV, async () => {
     delete require.cache[require.resolve("../api/prompts.js")];
