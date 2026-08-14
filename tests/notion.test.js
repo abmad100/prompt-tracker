@@ -524,3 +524,9 @@ test("isValidQueryResponseShape rejects has_more:true with a missing/empty next_
     false
   );
 });
+
+test("isValidQueryResponseShape rejects a non-boolean has_more, even if falsy (diff-review round 7 P1)", () => {
+  assert.equal(notion.isValidQueryResponseShape({ results: [], has_more: "false" }), false);
+  assert.equal(notion.isValidQueryResponseShape({ results: [], has_more: 0 }), false);
+  assert.equal(notion.isValidQueryResponseShape({ results: [] }), false); // has_more absent entirely
+});

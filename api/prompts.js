@@ -252,10 +252,15 @@ async function handlePost(req, res) {
         // malformed candidate, skip
       }
     }
-    if (candidates.length > 0) {
+    if (candidates.length > 0 || findResult.json.has_more) {
       // Candidates existed under this hash but none verified — a real,
       // if rare, corruption-adjacent scenario. Signal it rather than
-      // silently create.
+      // silently create. Also covers has_more:true with an EMPTY page
+      // of visible candidates (diff-review round 7 P1 finding) — an
+      // edge case buildFindByHashQuery's own page_size:10 doesn't
+      // normally produce, but a genuinely malformed/anomalous response
+      // claiming more results exist beyond an empty page must still be
+      // treated as an incomplete check, not a confirmed-clean one.
       duplicateCheckIncomplete = true;
     }
   } else {

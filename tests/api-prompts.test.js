@@ -238,6 +238,45 @@ test("GET rejects (502) has_more:true with no usable next_cursor instead of sile
   });
 });
 
+test("POST sets duplicateCheckIncomplete when has_more:true but the visible candidate page is empty (diff-review round 7 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        // Anomalous but shape-valid: an empty visible page claiming
+        // more candidates exist beyond it.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ results: [], has_more: true, next_cursor: "more-exists" }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("my new prompt", 0, "55555555-5555-5555-5555-555555555555"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "my new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.created, true);
+      assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("POST falls through to create with duplicateCheckIncomplete when the lookup response has a malformed (non-array) results field (diff-review round 5 P1)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;
@@ -341,7 +380,7 @@ test("POST rejects a body over the 100KB limit with 413, via streaming enforceme
     const res = fakeRes();
     const p = handler(req, res);
     process.nextTick(() => {
-      req.emit("data", Buffer.alloc(200 * 1024, "x")); // 200KB, over the 100KB cap
+      req.emit("data", Buffer.alloc(200 * 1024, "x")); // 200KB, over the 150KB cap
     });
     await p;
     assert.equal(res.statusCode, 413);
@@ -383,13 +422,51 @@ test("POST rejects text over 20,000 code points before any chunking/hashing", as
   });
 });
 
+test("POST accepts a genuine 20,000-code-point input even in the worst-case JSON-escape shape (diff-review round 7 P2)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    // U+0001 has no short JSON escape form (unlike \n, \t, etc.) — it
+    // serializes as the full 6-byte "\u0001" escape sequence. 20,000
+    // of them is exactly
+    // the worst-case inflation this fix accounts for.
+    const worstCaseText = "".repeat(20000);
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [], has_more: false }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage(worstCaseText, 0, "55555555-5555-5555-5555-555555555555"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: worstCaseText }));
+      await p;
+      // Must NOT be a 413 (would previously have been misleading — the
+      // input is genuinely within the documented character limit).
+      assert.equal(res.statusCode, 201);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("POST returns the existing page (created:false) on a verified duplicate", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;
     const existing = realDatabasePage("existing prompt", 5, "77777777-7777-7777-7777-777777777777");
     global.fetch = async (url) => {
       if (url.includes("/query")) {
-        return { ok: true, status: 200, json: async () => ({ results: [existing] }) };
+        return { ok: true, status: 200, json: async () => ({ results: [existing], has_more: false }) };
       }
       throw new Error("should not attempt to create when a duplicate is found");
     };

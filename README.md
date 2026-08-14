@@ -55,6 +55,43 @@ https://drive.google.com/file/d/1oCtGaFrMtgB_MC6Lc9q4SesuY5EXvXga/view
    control — see "Security model" below. Without it, this deployment is a
    public website with no login.
 
+### Post-setup verification checklist
+
+Do this once, right after the first real deployment, before relying on
+the app. This is the one place several assumptions this app makes about
+Notion's real API behavior get genuinely proven, rather than just
+asserted in a code comment (diff-review round 7 P1 finding — this
+checklist was referenced by the internal design notes, `PLAN.md`, but
+had never actually been written down here before).
+
+1. Save one real prompt through the UI. Confirm it appears in the
+   library list and the active-prompt panel shows the exact text back.
+2. Open the record directly in Notion. Confirm all six properties are
+   populated: **Prompt Text** (title, matches what you typed exactly),
+   **Normalized Text** (lowercase/trimmed), **Normalized Hash** (a
+   64-character hex string), **Count** (`0`), **Created** (today's
+   date/time), **Last Used** (empty).
+3. Click **Copy**. Confirm the "Copied!" status appears (not "Copied!
+   (tracking failed)").
+4. Back in Notion, confirm **Count** is now `1` and **Last Used** is
+   set to the time you just clicked Copy.
+5. **This is the important one**: confirm the **Last Used** value
+   Notion shows is a real, sensible timestamp — not blank, not an
+   error, not obviously wrong. This app's date-handling code requires
+   Notion to echo back dates in an exact canonical format
+   (`YYYY-MM-DDTHH:mm:ss.sssZ`); it has no way to verify this
+   assumption without a real deployment, and if it's ever wrong, the
+   symptom is specific: the record silently disappears from future
+   `GET`/list results (treated as malformed), and every future Copy
+   click on it fails with "Failed to confirm the usage count update."
+   If you hit that exact combination, that's the failure mode this
+   step exists to catch early — see `lib/notion.js`'s own
+   `ISO_8601_STRICT_RE` comment for the full technical detail.
+6. Type the same prompt text again (exact match) in the search box.
+   Confirm it's recognized (shown in the active-prompt panel, not
+   offered as "create new").
+7. Delete the test record directly in Notion when you're done.
+
 ## Security model (read this before deploying)
 
 This app deliberately has **no application-level authentication**. Every

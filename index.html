@@ -134,10 +134,18 @@
           );
         }
         if (state.truncated) {
+          // Deliberately does NOT say "duplicate detection may be
+          // incomplete" — that's server-side and independent of
+          // truncation (see the create-panel comment below and
+          // README.md's "Known limitations"). Only library BROWSING
+          // and this page's own client-side exact-match hint are
+          // affected by truncation (diff-review round 7 P2 finding —
+          // this exact wording had already been corrected elsewhere,
+          // round 4, but this specific instance was missed then).
           libraryWarnings.appendChild(
             textEl(
               "p",
-              "Library may be incomplete (showing the first 5,000 records) — search results and duplicate detection may be incomplete.",
+              "Library may be incomplete (showing the first 5,000 records) — browsing and the live search hint below may be incomplete.",
               "warning"
             )
           );
