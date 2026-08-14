@@ -1,0 +1,12 @@
+{
+  "name": "prompt-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal prompt library with usage tracking, backed by Notion.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

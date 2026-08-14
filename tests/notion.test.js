@@ -1,0 +1,350 @@
+// tests/notion.test.js — Mode 1 coverage for lib/notion.js.
+// Zero-dependency: node:test + node:assert.
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const notion = require("../lib/notion.js");
+
+// ---------------------------------------------------------------------
+// chunkRichText — including the round-9 surrogate-pair boundary case
+// ---------------------------------------------------------------------
+
+test("chunkRichText: short text is a single chunk", () => {
+  const chunks = notion.chunkRichText("hello world", 2000);
+  assert.deepEqual(chunks, ["hello world"]);
+});
+
+test("chunkRichText: splits at exact code-point boundaries", () => {
+  const text = "a".repeat(4500);
+  const chunks = notion.chunkRichText(text, 2000);
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].length, 2000);
+  assert.equal(chunks[1].length, 2000);
+  assert.equal(chunks[2].length, 500);
+  assert.equal(chunks.join(""), text);
+});
+
+test("chunkRichText: never splits a surrogate pair (emoji boundary case)", () => {
+  // Build a string where an astral character (an emoji, which is a
+  // UTF-16 surrogate pair, 2 code units but 1 code point) sits exactly
+  // at what would be a naive raw-index chunk boundary.
+  const filler = "x".repeat(1999); // 1999 code points
+  const emoji = "\u{1F600}"; // 😀 — one code point, two UTF-16 units
+  const text = filler + emoji + "y".repeat(10);
+  const chunks = notion.chunkRichText(text, 2000);
+  // The emoji must appear whole in exactly one chunk, never split.
+  const rejoined = chunks.join("");
+  assert.equal(rejoined, text);
+  assert.ok(chunks.some((c) => c.includes(emoji)));
+  // Confirm no chunk contains a lone unpaired surrogate.
+  for (const c of chunks) {
+    for (let i = 0; i < c.length; i++) {
+      const code = c.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        // high surrogate — must be immediately followed by a low surrogate
+        // within the SAME chunk
+        assert.ok(
+          i + 1 < c.length && c.charCodeAt(i + 1) >= 0xdc00 && c.charCodeAt(i + 1) <= 0xdfff,
+          "found an unpaired high surrogate at a chunk boundary"
+        );
+      }
+    }
+  }
+});
+
+test("chunkRichText: empty string produces one empty chunk", () => {
+  assert.deepEqual(notion.chunkRichText("", 2000), [""]);
+});
+
+// ---------------------------------------------------------------------
+// sha256Hex — determinism
+// ---------------------------------------------------------------------
+
+test("sha256Hex is deterministic and 64 hex chars", () => {
+  const h1 = notion.sha256Hex("hello");
+  const h2 = notion.sha256Hex("hello");
+  assert.equal(h1, h2);
+  assert.equal(h1.length, 64);
+  assert.match(h1, /^[0-9a-f]{64}$/);
+  assert.notEqual(notion.sha256Hex("hello"), notion.sha256Hex("world"));
+});
+
+// ---------------------------------------------------------------------
+// parseCount — full accept/reject matrix, incl. unsafe integers
+// ---------------------------------------------------------------------
+
+test("parseCount accepts finite non-negative safe integers", () => {
+  assert.equal(notion.parseCount(0), 0);
+  assert.equal(notion.parseCount(42), 42);
+  assert.equal(notion.parseCount(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+});
+
+test("parseCount rejects null/undefined/non-number", () => {
+  assert.equal(notion.parseCount(null), null);
+  assert.equal(notion.parseCount(undefined), null);
+  assert.equal(notion.parseCount("5"), null);
+  assert.equal(notion.parseCount({}), null);
+});
+
+test("parseCount rejects negative, NaN, Infinity", () => {
+  assert.equal(notion.parseCount(-1), null);
+  assert.equal(notion.parseCount(NaN), null);
+  assert.equal(notion.parseCount(Infinity), null);
+});
+
+test("parseCount rejects non-integer and unsafe-integer values", () => {
+  assert.equal(notion.parseCount(3.5), null);
+  assert.equal(notion.parseCount(Number.MAX_SAFE_INTEGER + 10), null);
+});
+
+// ---------------------------------------------------------------------
+// serializedSizeBytes — threshold behavior
+// ---------------------------------------------------------------------
+
+test("serializedSizeBytes measures the full object, not just an inner array", () => {
+  const small = { prompts: [{ a: 1 }] };
+  const big = { prompts: [{ a: "x".repeat(1000) }] };
+  assert.ok(notion.serializedSizeBytes(big) > notion.serializedSizeBytes(small));
+});
+
+// ---------------------------------------------------------------------
+// buildCopyUpdatePayload — round 5 both-fields assertion
+// ---------------------------------------------------------------------
+
+test("buildCopyUpdatePayload sets BOTH Count and Last Used", () => {
+  const payload = notion.buildCopyUpdatePayload(5, "2026-08-14T09:00:00.000Z");
+  assert.equal(payload.properties.Count.number, 6);
+  assert.equal(payload.properties["Last Used"].date.start, "2026-08-14T09:00:00.000Z");
+});
+
+// ---------------------------------------------------------------------
+// buildCreatePayload / buildFindByHashQuery
+// ---------------------------------------------------------------------
+
+test("buildCreatePayload chunks and hashes correctly, preserves original casing", () => {
+  const payload = notion.buildCreatePayload("  Hello World  ");
+  const titleText = payload.properties["Prompt Text"].title
+    .map((t) => t.text.content)
+    .join("");
+  assert.equal(titleText, "  Hello World  "); // original casing preserved, not trimmed
+  const normText = payload.properties["Normalized Text"].rich_text
+    .map((t) => t.text.content)
+    .join("");
+  assert.equal(normText, "hello world");
+  const hash = payload.properties["Normalized Hash"].rich_text[0].text.content;
+  assert.equal(hash, notion.sha256Hex("hello world"));
+  assert.equal(payload.properties.Count.number, 0);
+  assert.ok(payload.properties.Created.date.start);
+  // Last Used deliberately not set at creation.
+  assert.equal(payload.properties["Last Used"], undefined);
+});
+
+test("buildFindByHashQuery requests page_size 10 and filters by hash equality", () => {
+  const q = notion.buildFindByHashQuery("abc123");
+  assert.equal(q.page_size, 10);
+  assert.equal(q.filter.property, "Normalized Hash");
+  assert.equal(q.filter.rich_text.equals, "abc123");
+});
+
+// ---------------------------------------------------------------------
+// parseNotionPage / isValidPromptRecordShape
+// ---------------------------------------------------------------------
+
+function fakePage(overrides = {}) {
+  const promptText = overrides.promptText ?? "Hello World";
+  const normalizedText = promptText.trim().toLowerCase();
+  const hash = notion.sha256Hex(normalizedText);
+  return {
+    id: overrides.id ?? "abcdef12-3456-7890-abcd-ef1234567890",
+    properties: {
+      "Prompt Text": {
+        title: [{ type: "text", text: { content: promptText } }],
+      },
+      "Normalized Text": {
+        rich_text: [{ type: "text", text: { content: normalizedText } }],
+      },
+      "Normalized Hash": {
+        rich_text: [{ type: "text", text: { content: hash } }],
+      },
+      Count: { number: overrides.count ?? 0 },
+      Created: { date: { start: overrides.created ?? "2026-08-14T09:00:00.000Z" } },
+      ...(overrides.lastUsed !== undefined
+        ? { "Last Used": { date: overrides.lastUsed ? { start: overrides.lastUsed } : null } }
+        : {}),
+    },
+  };
+}
+
+test("parseNotionPage extracts all fields correctly", () => {
+  const page = fakePage({ count: 7, lastUsed: "2026-08-14T10:00:00.000Z" });
+  const parsed = notion.parseNotionPage(page);
+  assert.equal(parsed.promptText, "Hello World");
+  assert.equal(parsed.normalizedText, "hello world");
+  assert.equal(parsed.count, 7);
+  assert.equal(parsed.lastUsed, "2026-08-14T10:00:00.000Z");
+});
+
+test("isValidPromptRecordShape accepts a genuine, consistent record", () => {
+  assert.equal(notion.isValidPromptRecordShape(fakePage()), true);
+});
+
+test("isValidPromptRecordShape accepts a never-copied record (absent Last Used)", () => {
+  const page = fakePage();
+  assert.equal(notion.isValidPromptRecordShape(page), true);
+});
+
+test("isValidPromptRecordShape rejects a tampered record (normalized text doesn't match recomputation)", () => {
+  const page = fakePage();
+  // Corrupt the stored Normalized Text without updating Prompt Text.
+  page.properties["Normalized Text"].rich_text[0].text.content = "totally different";
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a record whose hash doesn't match its own normalized text", () => {
+  const page = fakePage();
+  page.properties["Normalized Hash"].rich_text[0].text.content = "0".repeat(64);
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects missing/wrong-typed properties", () => {
+  const page = fakePage();
+  delete page.properties.Count;
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a non-canonical (rollover) date", () => {
+  const page = fakePage({ created: "2026-02-30T00:00:00.000Z" });
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+// ---------------------------------------------------------------------
+// isValidIso8601 — exact canonical form + rollover rejection
+// ---------------------------------------------------------------------
+
+test("isValidIso8601 accepts the exact toISOString() form", () => {
+  assert.equal(notion.isValidIso8601(new Date().toISOString()), true);
+  assert.equal(notion.isValidIso8601("2026-08-14T09:00:00.000Z"), true);
+});
+
+test("isValidIso8601 rejects non-canonical forms", () => {
+  assert.equal(notion.isValidIso8601("2026-08-14"), false); // date-only
+  assert.equal(notion.isValidIso8601("2026-08-14T09:00:00-04:00"), false); // offset, no ms
+  assert.equal(notion.isValidIso8601("not a date"), false);
+  assert.equal(notion.isValidIso8601(null), false);
+});
+
+test("isValidIso8601 rejects a rollover value via round-trip check", () => {
+  // Feb 30 doesn't exist; Date silently rolls it over to March.
+  assert.equal(notion.isValidIso8601("2026-02-30T00:00:00.000Z"), false);
+});
+
+// ---------------------------------------------------------------------
+// readBodyWithLimit — streaming, single-response-safe
+// ---------------------------------------------------------------------
+
+function fakeReq() {
+  const req = new EventEmitter();
+  req.destroy = () => {
+    req._destroyed = true;
+  };
+  return req;
+}
+
+test("readBodyWithLimit resolves with the full body under the limit", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 1000);
+  req.emit("data", Buffer.from('{"text":"hi"}'));
+  req.emit("end");
+  const body = await promise;
+  assert.equal(body, '{"text":"hi"}');
+});
+
+test("readBodyWithLimit rejects with PayloadTooLargeError and destroys the stream on overflow", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 10);
+  req.emit("data", Buffer.from("this is definitely more than ten bytes"));
+  await assert.rejects(promise, notion.PayloadTooLargeError);
+  assert.equal(req._destroyed, true);
+});
+
+test("readBodyWithLimit rejects with BodyReadError on a stream error, exactly once", async () => {
+  const req = fakeReq();
+  const promise = notion.readBodyWithLimit(req, 1000);
+  req.emit("error", new Error("connection reset"));
+  // A late 'end' after an error must not also settle the promise again.
+  req.emit("end");
+  await assert.rejects(promise, notion.BodyReadError);
+});
+
+// ---------------------------------------------------------------------
+// expectedOrigin / isSameOrigin — the round-13 self-caught bug's own
+// regression test: VERCEL_URL is a bare host, Origin is scheme-qualified
+// ---------------------------------------------------------------------
+
+test("expectedOrigin normalizes a bare VERCEL_URL host into a full origin", () => {
+  const prevAllowed = process.env.ALLOWED_ORIGIN;
+  const prevVercel = process.env.VERCEL_URL;
+  delete process.env.ALLOWED_ORIGIN;
+  process.env.VERCEL_URL = "my-app-abc123.vercel.app";
+  try {
+    assert.equal(notion.expectedOrigin(), "https://my-app-abc123.vercel.app");
+  } finally {
+    if (prevAllowed !== undefined) process.env.ALLOWED_ORIGIN = prevAllowed;
+    else delete process.env.ALLOWED_ORIGIN;
+    if (prevVercel !== undefined) process.env.VERCEL_URL = prevVercel;
+    else delete process.env.VERCEL_URL;
+  }
+});
+
+test("isSameOrigin: a real scheme-qualified Origin header matches a bare-host VERCEL_URL (round 13 regression)", () => {
+  const prevAllowed = process.env.ALLOWED_ORIGIN;
+  const prevVercel = process.env.VERCEL_URL;
+  delete process.env.ALLOWED_ORIGIN;
+  process.env.VERCEL_URL = "my-app.vercel.app";
+  try {
+    const req = { headers: { origin: "https://my-app.vercel.app" } };
+    assert.equal(notion.isSameOrigin(req), true);
+  } finally {
+    if (prevAllowed !== undefined) process.env.ALLOWED_ORIGIN = prevAllowed;
+    else delete process.env.ALLOWED_ORIGIN;
+    if (prevVercel !== undefined) process.env.VERCEL_URL = prevVercel;
+    else delete process.env.VERCEL_URL;
+  }
+});
+
+test("isSameOrigin fails closed on absent Origin header", () => {
+  process.env.ALLOWED_ORIGIN = "https://example.com";
+  const req = { headers: {} };
+  assert.equal(notion.isSameOrigin(req), false);
+  delete process.env.ALLOWED_ORIGIN;
+});
+
+test("isSameOrigin fails closed on malformed Origin header", () => {
+  process.env.ALLOWED_ORIGIN = "https://example.com";
+  const req = { headers: { origin: "not-a-url" } };
+  assert.equal(notion.isSameOrigin(req), false);
+  delete process.env.ALLOWED_ORIGIN;
+});
+
+test("isSameOrigin rejects a mismatched (attacker) origin", () => {
+  process.env.ALLOWED_ORIGIN = "https://example.com";
+  const req = { headers: { origin: "https://evil.example.net" } };
+  assert.equal(notion.isSameOrigin(req), false);
+  delete process.env.ALLOWED_ORIGIN;
+});
+
+// ---------------------------------------------------------------------
+// isValidPageId
+// ---------------------------------------------------------------------
+
+test("isValidPageId accepts hyphenated and non-hyphenated UUIDs", () => {
+  assert.equal(notion.isValidPageId("abcdef12-3456-7890-abcd-ef1234567890"), true);
+  assert.equal(notion.isValidPageId("abcdef1234567890abcdef1234567890"), true);
+});
+
+test("isValidPageId rejects garbage", () => {
+  assert.equal(notion.isValidPageId("not-an-id"), false);
+  assert.equal(notion.isValidPageId(""), false);
+  assert.equal(notion.isValidPageId(null), false);
+});

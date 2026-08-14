@@ -1,0 +1,379 @@
+// tests/api-prompts.test.js — Mode 2 (deterministic mocked-integration)
+// coverage for api/prompts.js. Mocks global fetch — no live Notion
+// credentials needed or used.
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const crypto = require("node:crypto");
+
+function fakeRes() {
+  const res = {
+    statusCode: null,
+    body: null,
+    headers: {},
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+    setHeader(k, v) {
+      this.headers[k] = v;
+    },
+  };
+  return res;
+}
+
+function fakeReq({ method, headers = {}, chunks = [] } = {}) {
+  const req = new EventEmitter();
+  req.method = method;
+  req.headers = headers;
+  req._chunks = chunks;
+  req.destroy = () => {
+    req._destroyed = true;
+  };
+  return req;
+}
+
+function emitBody(req, str) {
+  process.nextTick(() => {
+    if (str) req.emit("data", Buffer.from(str));
+    req.emit("end");
+  });
+}
+
+function withEnv(vars, fn) {
+  const prev = {};
+  for (const k of Object.keys(vars)) {
+    prev[k] = process.env[k];
+    process.env[k] = vars[k];
+  }
+  return (async () => {
+    try {
+      return await fn();
+    } finally {
+      for (const k of Object.keys(vars)) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k];
+      }
+    }
+  })();
+}
+
+function realDatabasePage(promptText, count, id) {
+  const normalized = promptText.trim().toLowerCase();
+  const hash = crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
+  return {
+    id: id || "abcdef12-3456-7890-abcd-ef1234567890",
+    properties: {
+      "Prompt Text": { title: [{ type: "text", text: { content: promptText } }] },
+      "Normalized Text": { rich_text: [{ type: "text", text: { content: normalized } }] },
+      "Normalized Hash": { rich_text: [{ type: "text", text: { content: hash } }] },
+      Count: { number: count },
+      Created: { date: { start: "2026-08-14T09:00:00.000Z" } },
+    },
+  };
+}
+
+const ENV = {
+  NOTION_API_KEY: "test-key",
+  NOTION_DATABASE_ID: "db-1234",
+  ALLOWED_ORIGIN: "https://example.vercel.app",
+};
+
+test("GET returns paginated, mapped prompts sorted by count", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      assert.ok(url.includes("/databases/db-1234/query"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [realDatabasePage("low", 1, "id-1"), realDatabasePage("high", 9, "id-2")],
+          has_more: false,
+        }),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.prompts.length, 2);
+      assert.equal(res.body.prompts[0].promptText, "high"); // sorted desc
+      assert.equal(res.body.skippedCount, 0);
+      assert.equal(res.body.truncated, false);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("GET folds malformed records into skippedCount, doesn't crash", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [{ id: "bad-1", properties: {} }, realDatabasePage("ok", 2, "id-2")],
+        has_more: false,
+      }),
+    });
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.prompts.length, 1);
+      assert.equal(res.body.skippedCount, 1);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("GET marks truncated when the page cap is hit with more remaining", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    let calls = 0;
+    global.fetch = async () => {
+      calls++;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          results: [realDatabasePage(`p${calls}`, calls, `id-${calls}`)],
+          has_more: true,
+          next_cursor: `cursor-${calls}`,
+        }),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.truncated, true);
+      assert.equal(calls, 50); // hit MAX_PAGES
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST rejects wrong Content-Type without reading the body", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({ method: "POST", headers: { "content-type": "text/plain" } });
+    const res = fakeRes();
+    await handler(req, res);
+    assert.equal(res.statusCode, 415);
+  });
+});
+
+test("POST accepts application/json with charset parameter", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("brand new prompt", 0, "new-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          origin: "https://example.vercel.app",
+        },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "brand new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST rejects a cross-origin request (CSRF)", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example.net" },
+    });
+    const res = fakeRes();
+    await handler(req, res);
+    assert.equal(res.statusCode, 403);
+  });
+});
+
+test("POST rejects a body over the 100KB limit with 413, via streaming enforcement", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+    });
+    const res = fakeRes();
+    const p = handler(req, res);
+    process.nextTick(() => {
+      req.emit("data", Buffer.alloc(200 * 1024, "x")); // 200KB, over the 100KB cap
+    });
+    await p;
+    assert.equal(res.statusCode, 413);
+  });
+});
+
+test("POST rejects blank text", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+    });
+    const res = fakeRes();
+    const p = handler(req, res);
+    emitBody(req, JSON.stringify({ text: "   " }));
+    await p;
+    assert.equal(res.statusCode, 400);
+  });
+});
+
+test("POST rejects text over 20,000 code points before any chunking/hashing", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+    });
+    const res = fakeRes();
+    const p = handler(req, res);
+    emitBody(req, JSON.stringify({ text: "a".repeat(20001) }));
+    await p;
+    assert.equal(res.statusCode, 400);
+  });
+});
+
+test("POST returns the existing page (created:false) on a verified duplicate", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const existing = realDatabasePage("existing prompt", 5, "existing-id");
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [existing] }) };
+      }
+      throw new Error("should not attempt to create when a duplicate is found");
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "Existing Prompt" }));
+      await p;
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.created, false);
+      assert.equal(res.body.prompt.id, "existing-id");
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST sets duplicateCheckIncomplete when candidates existed but none verified", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    // A candidate sharing the hash by coincidence/corruption, but whose
+    // actual normalized text differs.
+    const unrelated = realDatabasePage("totally unrelated text", 1, "unrelated-id");
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [unrelated] }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "my new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.created, true);
+      assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("unsupported method returns 405 with Allow header", async () => {
+  await withEnv(ENV, async () => {
+    delete require.cache[require.resolve("../api/prompts.js")];
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({ method: "DELETE", headers: {} });
+    const res = fakeRes();
+    await handler(req, res);
+    assert.equal(res.statusCode, 405);
+    assert.equal(res.headers.Allow, "GET, POST");
+  });
+});
+
+test("missing env vars returns a clean 500 with no secret in the body", async () => {
+  delete require.cache[require.resolve("../api/prompts.js")];
+  const prevKey = process.env.NOTION_API_KEY;
+  const prevDb = process.env.NOTION_DATABASE_ID;
+  delete process.env.NOTION_API_KEY;
+  delete process.env.NOTION_DATABASE_ID;
+  try {
+    const handler = require("../api/prompts.js");
+    const req = fakeReq({ method: "GET", headers: {} });
+    const res = fakeRes();
+    await handler(req, res);
+    assert.equal(res.statusCode, 500);
+    assert.ok(!JSON.stringify(res.body).includes("test-key"));
+  } finally {
+    if (prevKey !== undefined) process.env.NOTION_API_KEY = prevKey;
+    if (prevDb !== undefined) process.env.NOTION_DATABASE_ID = prevDb;
+  }
+});

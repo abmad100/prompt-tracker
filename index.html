@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!--
+    Design decisions carried in from the 16-round /gpt-review plan-
+    convergence loop (full history: workstream LL doc,
+    https://drive.google.com/file/d/1oCtGaFrMtgB_MC6Lc9q4SesuY5EXvXga/view):
+
+    - Access control: this app has NO application-level authentication.
+      It relies entirely on Vercel Deployment Protection (scoped to your
+      own account only — see README). Mose's explicit decision, round 2,
+      restated by review 12+ times with no new evidence.
+    - Copy-count updates use a plain read-modify-write, not an atomic
+      operation. Under genuinely concurrent requests (e.g. two open
+      browser tabs) an increment can be lost. Mose's explicit decision,
+      round 4 — client-side mitigation (the button below disables while
+      a copy is in flight) plus documented acceptance, not an event-log
+      redesign.
+    - Duplicate-prompt creation has the same non-atomic, best-effort
+      nature — a race between two create requests for the same new text
+      can produce two records.
+    - All prompt-derived text is rendered via textContent/DOM node
+      creation ONLY, never innerHTML — a real XSS finding from round 2,
+      fixed and held for the rest of the loop.
+  -->
+  <header>
+    <h1>Prompt Tracker</h1>
+    <input
+      id="search"
+      type="text"
+      placeholder="Search or paste a prompt…"
+      autocomplete="off"
+    />
+  </header>
+
+  <main>
+    <section id="active-panel" hidden>
+      <div id="active-panel-inner"></div>
+    </section>
+
+    <section id="create-panel" hidden>
+      <button id="create-btn" type="button"></button>
+    </section>
+
+    <section id="library">
+      <div id="library-warnings"></div>
+      <ul id="library-list"></ul>
+    </section>
+  </main>
+
+  <script src="lib/matching.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      var state = {
+        prompts: [],
+        skippedCount: 0,
+        truncated: false,
+        loaded: false,
+      };
+
+      var searchEl = document.getElementById("search");
+      var activePanel = document.getElementById("active-panel");
+      var activePanelInner = document.getElementById("active-panel-inner");
+      var createPanel = document.getElementById("create-panel");
+      var createBtn = document.getElementById("create-btn");
+      var libraryWarnings = document.getElementById("library-warnings");
+      var libraryList = document.getElementById("library-list");
+
+      function clearChildren(el) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+      }
+
+      function textEl(tag, text, className) {
+        var el = document.createElement(tag);
+        if (className) el.className = className;
+        el.textContent = text; // textContent only — never innerHTML with
+        // prompt-derived data (round 2 XSS fix, held for the rest of the
+        // loop).
+        return el;
+      }
+
+      function preview(text, n) {
+        var codePoints = Array.from(text);
+        if (codePoints.length <= n) return text;
+        return codePoints.slice(0, n).join("") + "…";
+      }
+
+      async function fetchPrompts() {
+        var res = await fetch("/api/prompts");
+        if (!res.ok) {
+          renderLibraryError("Could not load the prompt library.");
+          return;
+        }
+        var data = await res.json();
+        state.prompts = data.prompts || [];
+        state.skippedCount = data.skippedCount || 0;
+        state.truncated = Boolean(data.truncated);
+        state.loaded = true;
+        renderLibrary();
+      }
+
+      function renderLibraryError(message) {
+        clearChildren(libraryWarnings);
+        libraryWarnings.appendChild(textEl("p", message, "warning"));
+      }
+
+      function renderLibrary() {
+        clearChildren(libraryWarnings);
+        if (state.skippedCount > 0) {
+          libraryWarnings.appendChild(
+            textEl(
+              "p",
+              state.skippedCount +
+                " record(s) could not be loaded and are hidden from this view.",
+              "warning"
+            )
+          );
+        }
+        if (state.truncated) {
+          libraryWarnings.appendChild(
+            textEl(
+              "p",
+              "Library may be incomplete (showing the first 5,000 records) — search results and duplicate detection may be incomplete.",
+              "warning"
+            )
+          );
+        }
+
+        clearChildren(libraryList);
+        var sorted = window.PromptMatching.filterPrompts(state.prompts, "");
+        for (var i = 0; i < sorted.length; i++) {
+          var p = sorted[i];
+          var li = document.createElement("li");
+          li.appendChild(textEl("span", preview(p.promptText, 60), "preview"));
+          li.appendChild(textEl("span", String(p.count), "count"));
+          libraryList.appendChild(li);
+        }
+      }
+
+      var pendingDuplicateWarningText = null;
+
+      function renderSearchState() {
+        var query = searchEl.value;
+        var result = window.PromptMatching.resolveSearchState(state.prompts, query);
+
+        clearChildren(activePanelInner);
+        activePanel.hidden = true;
+        createPanel.hidden = true;
+
+        if (result.state === "match") {
+          showActive(result.prompt);
+        } else if (result.state === "create") {
+          createPanel.hidden = state.truncated; // disabled while
+          // truncated, per round 12's fix — creating against a known-
+          // incomplete view risks a genuine duplicate beyond the loaded
+          // window.
+          if (!createPanel.hidden) {
+            clearChildren(createBtn);
+            createBtn.appendChild(
+              textEl("span", '+ Create new prompt with this text')
+            );
+            createBtn.onclick = function () {
+              createPrompt(query);
+            };
+          }
+        }
+      }
+
+      function showActive(prompt, note) {
+        activePanel.hidden = false;
+        clearChildren(activePanelInner);
+        var pre = document.createElement("pre");
+        var code = document.createElement("code");
+        code.textContent = prompt.promptText; // textContent, never innerHTML
+        pre.appendChild(code);
+        activePanelInner.appendChild(pre);
+
+        var copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.textContent = "Copy";
+        activePanelInner.appendChild(copyBtn);
+
+        var statusEl = textEl("span", "", "copy-status");
+        activePanelInner.appendChild(statusEl);
+
+        if (note) {
+          activePanelInner.appendChild(textEl("p", note, "warning"));
+        }
+
+        copyBtn.addEventListener("click", function () {
+          doCopy(prompt, copyBtn, statusEl);
+        });
+      }
+
+      async function doCopy(prompt, btn, statusEl) {
+        btn.disabled = true;
+        statusEl.textContent = "";
+        try {
+          await navigator.clipboard.writeText(prompt.promptText);
+        } catch (e) {
+          statusEl.textContent = "Clipboard copy failed.";
+          btn.disabled = false;
+          return;
+        }
+        // Clipboard succeeded — now track the copy. If tracking fails,
+        // say so distinctly; never claim full success, never imply the
+        // clipboard copy itself failed when it didn't (round 5/10 fix).
+        try {
+          var res = await fetch("/api/prompts/" + encodeURIComponent(prompt.id) + "/copy", {
+            method: "POST",
+          });
+          if (!res.ok) {
+            statusEl.textContent = "Copied! (tracking failed)";
+          } else {
+            var data = await res.json();
+            statusEl.textContent = "Copied!";
+            // Optimistic reconciliation: update the in-memory count from
+            // the response, no forced full re-fetch (round 5 fix).
+            prompt.count = data.count;
+            prompt.lastUsed = data.lastUsed;
+            renderLibrary();
+          }
+        } catch (e) {
+          statusEl.textContent = "Copied! (tracking failed)";
+        }
+        setTimeout(function () {
+          statusEl.textContent = "";
+          btn.disabled = false;
+        }, 1500);
+      }
+
+      async function createPrompt(text) {
+        createBtn.disabled = true;
+        try {
+          var res = await fetch("/api/prompts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text }),
+          });
+          if (!res.ok) {
+            var err = await res.json().catch(function () {
+              return {};
+            });
+            createBtn.disabled = false;
+            alert(err.error || "Could not save the new prompt.");
+            return;
+          }
+          var data = await res.json();
+          state.prompts.push(data.prompt);
+          renderLibrary();
+          var note = data.duplicateCheckIncomplete
+            ? "Note: couldn't fully verify this isn't a duplicate — check the library if unsure."
+            : null;
+          createPanel.hidden = true;
+          showActive(data.prompt, note);
+        } finally {
+          createBtn.disabled = false;
+        }
+      }
+
+      searchEl.addEventListener("input", renderSearchState);
+
+      fetchPrompts();
+    })();
+  </script>
+</body>
+</html>
