@@ -369,7 +369,7 @@ test("POST rejects a cross-origin request (CSRF)", async () => {
   });
 });
 
-test("POST rejects a body over the 100KB limit with 413, via streaming enforcement, WITHOUT destroying the request (diff-review round 3 P1)", async () => {
+test("POST rejects a body over the 150KB limit with 413, via streaming enforcement, WITHOUT destroying the request (diff-review round 3 P1)", async () => {
   await withEnv(ENV, async () => {
     delete require.cache[require.resolve("../api/prompts.js")];
     const handler = require("../api/prompts.js");
