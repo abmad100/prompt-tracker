@@ -277,6 +277,24 @@ test("isValidPromptRecordShape rejects a non-canonical (rollover) date", () => {
   assert.equal(notion.isValidPromptRecordShape(page), false);
 });
 
+test("isValidPromptRecordShape rejects a record whose Prompt Text is empty, even though it's internally consistent (diff-review round 8 P2 finding)", () => {
+  // fakePage() computes Normalized Text/Normalized Hash FROM promptText,
+  // so an empty promptText produces a record that is genuinely
+  // self-consistent (matching hash of the empty string) — every check
+  // in isValidPromptRecordShape except the emptiness check itself would
+  // otherwise accept it. POST /api/prompts rejects a blank prompt at
+  // creation time; a record like this could only exist via a manual
+  // edit made directly in Notion, and would violate the "every prompt
+  // has real content" assumption the rest of the app makes.
+  const page = fakePage({ promptText: "" });
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a Prompt Text that's whitespace-only after normalization", () => {
+  const page = fakePage({ promptText: "   \t\n  " });
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
 // ---------------------------------------------------------------------
 // isValidIso8601 — exact canonical form + rollover rejection
 // ---------------------------------------------------------------------

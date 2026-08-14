@@ -314,9 +314,21 @@ async function handlePost(req, res) {
       "Notion page create returned a record that failed shape validation",
       createResult.json && createResult.json.id
     );
-    res
-      .status(502)
-      .json({ error: "Failed to save the new prompt (unexpected response)." });
+    // Notion's own create call already succeeded by this point (a page
+    // genuinely exists) — this is a POST-hoc validation failure, not a
+    // failed write. Saying only "failed to save" would be misleading:
+    // a retry could produce a second, orphaned record that this app's
+    // hash-based duplicate lookup may never find again if the first
+    // one's own shape is malformed enough to be skipped on read too
+    // (diff-review round 8 P1 finding — the original message implied
+    // nothing was ever created).
+    res.status(502).json({
+      error:
+        "Failed to save the new prompt (Notion returned an unexpected " +
+        "response). A record may already exist in Notion from this " +
+        "attempt — check the library, or the Notion database directly, " +
+        "before retrying to avoid creating a duplicate.",
+    });
     return;
   }
 
@@ -331,9 +343,17 @@ async function handlePost(req, res) {
       "Notion page create returned a record for different content than submitted",
       createResult.json && createResult.json.id
     );
-    res
-      .status(502)
-      .json({ error: "Failed to save the new prompt (unexpected response)." });
+    // Same reasoning as the shape-validation failure above: Notion's
+    // create call already succeeded, so this is a mismatch detected
+    // after the fact, not proof nothing happened (diff-review round 8
+    // P1 finding).
+    res.status(502).json({
+      error:
+        "Failed to save the new prompt (Notion returned an unexpected " +
+        "response). A record may already exist in Notion from this " +
+        "attempt — check the library, or the Notion database directly, " +
+        "before retrying to avoid creating a duplicate.",
+    });
     return;
   }
   const responseBody = { prompt: parsed, created: true };

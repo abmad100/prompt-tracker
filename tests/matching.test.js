@@ -10,6 +10,7 @@ const {
   findExactMatch,
   filterPrompts,
   resolveSearchState,
+  upsertById,
 } = require("../lib/matching.js");
 
 const PROMPTS = [
@@ -107,4 +108,40 @@ test("resolveSearchState: a non-empty substring match that isn't exact is still 
   // "haiku" is a substring of prompt 2 but not an exact normalized match.
   const r = resolveSearchState(PROMPTS, "haiku");
   assert.equal(r.state, "create");
+});
+
+// ---------------------------------------------------------------------
+// upsertById — diff-review round 8 P2: POST /api/prompts's create-
+// response can report `created: false` (found an existing record
+// instead of making a new one); index.html uses this to avoid pushing
+// a duplicate row into the in-memory library.
+// ---------------------------------------------------------------------
+
+test("upsertById appends when no existing entry shares the id", () => {
+  const next = upsertById(PROMPTS, { id: "4", promptText: "new one", count: 0 });
+  assert.equal(next.length, 4);
+  assert.equal(next[3].id, "4");
+});
+
+test("upsertById replaces (not duplicates) an existing entry with the same id", () => {
+  const updated = { id: "2", promptText: "Write a haiku about autumn leaves", count: 11 };
+  const next = upsertById(PROMPTS, updated);
+  assert.equal(next.length, 3); // NOT 4 — this is the exact bug this fix closes
+  const entry = next.find((p) => p.id === "2");
+  assert.equal(entry.count, 11);
+});
+
+test("upsertById does not mutate the input array or its objects", () => {
+  const original = PROMPTS.slice();
+  const originalP2 = PROMPTS[1];
+  upsertById(PROMPTS, { id: "2", promptText: "changed", count: 999 });
+  assert.deepEqual(PROMPTS, original);
+  assert.equal(PROMPTS[1], originalP2);
+  assert.equal(originalP2.count, 10);
+});
+
+test("upsertById on an empty list appends as the only entry", () => {
+  const next = upsertById([], { id: "1", promptText: "first", count: 0 });
+  assert.equal(next.length, 1);
+  assert.equal(next[0].id, "1");
 });

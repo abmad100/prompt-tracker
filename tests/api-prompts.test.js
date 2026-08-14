@@ -603,6 +603,12 @@ test("POST rejects a create response that fails shape validation instead of trus
       emitBody(req, JSON.stringify({ text: "a brand new prompt" }));
       await p;
       assert.equal(res.statusCode, 502);
+      // Notion's own create call already succeeded by this point — the
+      // error must disclose that a record may exist, not just say
+      // "failed", or a retry can silently create a duplicate that this
+      // app's hash-based lookup may never find (diff-review round 8 P1
+      // finding).
+      assert.match(res.body.error, /may already exist in Notion/);
     } finally {
       global.fetch = origFetch;
     }
@@ -679,6 +685,10 @@ test("POST rejects a create response that's internally consistent but represents
       emitBody(req, JSON.stringify({ text: "a brand new prompt" }));
       await p;
       assert.equal(res.statusCode, 502);
+      // Same operator-actionable disclosure as the shape-validation
+      // failure above — this failure is also detected AFTER Notion's
+      // create call already succeeded (diff-review round 8 P1 finding).
+      assert.match(res.body.error, /may already exist in Notion/);
     } finally {
       global.fetch = origFetch;
     }

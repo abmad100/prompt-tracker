@@ -299,7 +299,15 @@
             return;
           }
           var data = await res.json();
-          state.prompts.push(data.prompt);
+          // data.created === false means the server found an existing
+          // record instead of making a new one (exact-match duplicate
+          // detection, POST /api/prompts). Blindly pushing here would
+          // add a second, duplicate row to the in-memory library any
+          // time the client's own list is stale/truncated/skipped this
+          // record — reconcile by id via the shared, unit-tested
+          // upsertById helper instead of assuming "new" (diff-review
+          // round 8 P2 finding).
+          state.prompts = window.PromptMatching.upsertById(state.prompts, data.prompt);
           renderLibrary();
           var note = data.duplicateCheckIncomplete
             ? "Note: couldn't fully verify this isn't a duplicate — check the library if unsure."

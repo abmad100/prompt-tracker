@@ -167,6 +167,24 @@ styling is already external (`styles.css`).
   IDs.** Generic Vercel platform logs are the only operational visibility.
   Considered and declined as disproportionate for a personal, Deployment-
   Protection-gated tool — see the plan LL doc for the full reasoning.
+- **A "failed to save" error after clicking Create can still mean a
+  record was created in Notion.** `POST /api/prompts` validates the
+  record Notion echoes back (its shape, and that it matches what was
+  actually submitted) *after* Notion's own create call has already
+  succeeded — those two things are checked separately because Notion's
+  API doesn't offer an atomic "create and confirm" operation. If the
+  echoed-back response fails that after-the-fact check (malformed
+  shape, or content that doesn't match what was submitted — see the
+  `Post-setup verification checklist` above for the specific date-
+  format assumption most likely to trigger this), the error message
+  says so explicitly and tells you to check the library or Notion
+  directly before retrying, rather than implying nothing happened
+  (diff-review round 8 finding). This is deliberately *not* treated as
+  reason to loosen the underlying shape/date validation itself — see
+  the "strict ISO-8601 comparison" reasoning in `lib/notion.js`'s
+  `ISO_8601_STRICT_RE` comment, which was already tightened once
+  (diff-review round 6) specifically to stop a genuinely malformed
+  date from silently passing as valid.
 
 ## Data handling
 
