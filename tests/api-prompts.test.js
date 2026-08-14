@@ -74,6 +74,11 @@ function realDatabasePage(promptText, count, id) {
       "Normalized Hash": { rich_text: [{ type: "text", text: { content: hash } }] },
       Count: { number: count },
       Created: { date: { start: "2026-08-14T09:00:00.000Z" } },
+      // A real Notion date property always carries the "date" key, even
+      // when unset (its value is null) — matches lib/notion.js's
+      // isValidPromptRecordShape, which now requires this property to
+      // exist (diff-review round 1 P1 finding).
+      "Last Used": { date: null },
     },
   };
 }
@@ -341,6 +346,111 @@ test("POST sets duplicateCheckIncomplete when candidates existed but none verifi
       assert.equal(res.statusCode, 201);
       assert.equal(res.body.created, true);
       assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST sets duplicateCheckIncomplete when the duplicate-lookup query itself fails (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        // The lookup call itself fails (non-2xx) — this must be treated
+        // the same as "couldn't verify uniqueness," not silently ignored.
+        return { ok: false, status: 500, json: async () => ({ message: "internal error" }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "my new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.body.created, true);
+      assert.equal(res.body.duplicateCheckIncomplete, true);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("a transport-level failure (fetch throws, not just a bad status) degrades to a clean 502, never crashes (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => {
+      throw new Error("getaddrinfo ENOTFOUND api.notion.com");
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({ method: "GET", headers: {} });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("POST rejects a create response that fails shape validation instead of trusting it (diff-review round 1 P2)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [] }) };
+      }
+      // The create call "succeeds" transport-wise but the returned page
+      // is missing required properties — must not be trusted as-is.
+      return { ok: true, status: 200, json: async () => ({ id: "created-id", properties: {} }) };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "a brand new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("GET and POST responses carry Cache-Control: no-store (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ results: [] }) });
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const getReq = fakeReq({ method: "GET", headers: {} });
+      const getRes = fakeRes();
+      await handler(getReq, getRes);
+      assert.equal(getRes.headers["Cache-Control"], "no-store");
+
+      const errReq = fakeReq({ method: "DELETE", headers: {} });
+      const errRes = fakeRes();
+      await handler(errReq, errRes);
+      assert.equal(errRes.headers["Cache-Control"], "no-store");
     } finally {
       global.fetch = origFetch;
     }

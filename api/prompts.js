@@ -45,12 +45,26 @@ function envConfigured() {
   return Boolean(process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID);
 }
 
+// Wraps the fetch call itself, not just JSON parsing — a network-level
+// failure (DNS, connection refused, TLS error) throws inside `fetch()`
+// itself, not a rejected/non-2xx response, and would otherwise propagate
+// as an unhandled exception all the way out of the exported handler
+// (diff-review round 1 P1 finding). Converts it into the same
+// `{ok: false, json: null}` shape a non-2xx HTTP response already
+// produces, so every existing `!ok || !json` call site handles both
+// uniformly with no other change needed.
 async function notionRequest(path, body) {
-  const res = await fetch(`https://api.notion.com/v1${path}`, {
-    method: "POST",
-    headers: notionHeaders(),
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`https://api.notion.com/v1${path}`, {
+      method: "POST",
+      headers: notionHeaders(),
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.error("Notion request transport failure", path, e.message);
+    return { ok: false, status: 0, json: null };
+  }
   const json = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
 }
@@ -215,7 +229,13 @@ async function handlePost(req, res) {
       findResult.json && findResult.json.message
     );
     // Fall through to create — a failed lookup shouldn't block the user
-    // from saving their prompt.
+    // from saving their prompt. But the lookup genuinely didn't
+    // complete, so this is exactly the same "couldn't verify uniqueness"
+    // situation as the candidates-existed-but-none-verified case above —
+    // it must be flagged the same way (diff-review round 1 P1 finding:
+    // this branch previously fell through silently, contradicting the
+    // README's documented "an incomplete lookup is flagged" contract).
+    duplicateCheckIncomplete = true;
   }
 
   const createPayload = buildCreatePayload(text);
@@ -234,6 +254,22 @@ async function handlePost(req, res) {
     return;
   }
 
+  // Validate the created page's own shape/consistency before trusting
+  // it — the same check already applied to every record on read and to
+  // the target of a copy. A malformed create response (schema drift,
+  // an unconfirmed edge in Notion's own API behavior) must not enter
+  // client state as a trusted record (diff-review round 1 P2 finding).
+  if (!isValidPromptRecordShape(createResult.json)) {
+    console.error(
+      "Notion page create returned a record that failed shape validation",
+      createResult.json
+    );
+    res
+      .status(502)
+      .json({ error: "Failed to save the new prompt (unexpected response)." });
+    return;
+  }
+
   const parsed = parseNotionPage(createResult.json);
   const responseBody = { prompt: parsed, created: true };
   if (duplicateCheckIncomplete) {
@@ -243,6 +279,11 @@ async function handlePost(req, res) {
 }
 
 module.exports = async function handler(req, res) {
+  // No caching of prompt-content responses at any layer (diff-review
+  // round 1 P1 finding) — set unconditionally, before any code path,
+  // so every response (list, create, and every error) carries it.
+  res.setHeader("Cache-Control", "no-store");
+
   if (!envConfigured()) {
     console.error("NOTION_API_KEY/NOTION_DATABASE_ID not set");
     res.status(500).json({ error: "Server is not configured." });

@@ -57,6 +57,21 @@ test("chunkRichText: empty string produces one empty chunk", () => {
   assert.deepEqual(notion.chunkRichText("", 2000), [""]);
 });
 
+test("chunkRichText: astral-heavy content never produces a chunk exceeding maxLen in UTF-16 length (diff-review round 1 P2 finding)", () => {
+  const emoji = "\u{1F600}"; // 😀 — 1 code point, 2 UTF-16 units
+  const text = emoji.repeat(1500); // 1500 code points, 3000 UTF-16 units
+  const chunks = notion.chunkRichText(text, 2000);
+  for (const c of chunks) {
+    assert.ok(c.length <= 2000, `chunk exceeded 2000 UTF-16 units: got ${c.length}`);
+  }
+  assert.equal(chunks.join(""), text); // reassembly still exact
+  // A code-point-COUNT-based chunker (the pre-fix design: 2000 code
+  // points per chunk) would put all 1500 code points into a SINGLE
+  // 3000-UTF-16-unit chunk here, since 1500 < 2000 — confirm this
+  // implementation genuinely splits it instead.
+  assert.ok(chunks.length > 1);
+});
+
 // ---------------------------------------------------------------------
 // sha256Hex — determinism
 // ---------------------------------------------------------------------
@@ -155,24 +170,34 @@ function fakePage(overrides = {}) {
   const promptText = overrides.promptText ?? "Hello World";
   const normalizedText = promptText.trim().toLowerCase();
   const hash = notion.sha256Hex(normalizedText);
+  const properties = {
+    "Prompt Text": {
+      title: [{ type: "text", text: { content: promptText } }],
+    },
+    "Normalized Text": {
+      rich_text: [{ type: "text", text: { content: normalizedText } }],
+    },
+    "Normalized Hash": {
+      rich_text: [{ type: "text", text: { content: hash } }],
+    },
+    Count: { number: overrides.count ?? 0 },
+    Created: { date: { start: overrides.created ?? "2026-08-14T09:00:00.000Z" } },
+  };
+  // By default, "Last Used" is PRESENT with a null date — the real
+  // shape Notion's own API returns for a genuinely never-copied record
+  // (the property key always exists on a real page in a database that
+  // has that column; only its value is null when unset). Pass
+  // `omitLastUsed: true` to instead model a database whose schema is
+  // missing the column entirely — a distinct, invalid shape (diff-
+  // review round 1 P1 finding).
+  if (!overrides.omitLastUsed) {
+    properties["Last Used"] = {
+      date: overrides.lastUsed ? { start: overrides.lastUsed } : null,
+    };
+  }
   return {
     id: overrides.id ?? "abcdef12-3456-7890-abcd-ef1234567890",
-    properties: {
-      "Prompt Text": {
-        title: [{ type: "text", text: { content: promptText } }],
-      },
-      "Normalized Text": {
-        rich_text: [{ type: "text", text: { content: normalizedText } }],
-      },
-      "Normalized Hash": {
-        rich_text: [{ type: "text", text: { content: hash } }],
-      },
-      Count: { number: overrides.count ?? 0 },
-      Created: { date: { start: overrides.created ?? "2026-08-14T09:00:00.000Z" } },
-      ...(overrides.lastUsed !== undefined
-        ? { "Last Used": { date: overrides.lastUsed ? { start: overrides.lastUsed } : null } }
-        : {}),
-    },
+    properties,
   };
 }
 
@@ -189,9 +214,25 @@ test("isValidPromptRecordShape accepts a genuine, consistent record", () => {
   assert.equal(notion.isValidPromptRecordShape(fakePage()), true);
 });
 
-test("isValidPromptRecordShape accepts a never-copied record (absent Last Used)", () => {
+test("isValidPromptRecordShape accepts a never-copied record (Last Used present, null date)", () => {
   const page = fakePage();
   assert.equal(notion.isValidPromptRecordShape(page), true);
+});
+
+test("isValidPromptRecordShape rejects a record whose Last Used property is missing from the schema entirely", () => {
+  const page = fakePage({ omitLastUsed: true });
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a Last Used property with no date key at all (wrong property type)", () => {
+  const page = fakePage();
+  page.properties["Last Used"] = { rich_text: [] };
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a non-canonical Last Used date", () => {
+  const page = fakePage({ lastUsed: "2026-02-30T00:00:00.000Z" });
+  assert.equal(notion.isValidPromptRecordShape(page), false);
 });
 
 test("isValidPromptRecordShape rejects a tampered record (normalized text doesn't match recomputation)", () => {

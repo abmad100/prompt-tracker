@@ -59,6 +59,11 @@ function realPage({ promptText = "hello world", count = 3, dbId = "db-1234-hyphe
       "Normalized Hash": { rich_text: [{ type: "text", text: { content: hash } }] },
       Count: { number: count },
       Created: { date: { start: "2026-08-14T09:00:00.000Z" } },
+      // See tests/api-prompts.test.js's realDatabasePage — a real
+      // Notion date property always carries the "date" key, even when
+      // unset. Required now that isValidPromptRecordShape enforces its
+      // presence (diff-review round 1 P1 finding).
+      "Last Used": { date: null },
     },
   };
 }
@@ -241,6 +246,65 @@ test("read-then-increment-then-write: PATCH payload sets Count+1 and Last Used, 
     } finally {
       global.fetch = origFetch;
     }
+  });
+});
+
+test("a transport-level failure on the GET (fetch throws, not just a bad status) degrades to a clean 404, never crashes (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async () => {
+      throw new Error("connect ECONNREFUSED");
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 404);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("a transport-level failure on the PATCH degrades to a clean 502, never crashes (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({});
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        throw new Error("socket hang up");
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("every response carries Cache-Control: no-store, set before the method check (diff-review round 1 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const handler = loadHandler();
+    const req = fakeReq({ method: "GET", query: { id: VALID_ID } });
+    const res = fakeRes();
+    await handler(req, res);
+    assert.equal(res.statusCode, 405); // GET is rejected...
+    assert.equal(res.headers["Cache-Control"], "no-store"); // ...but the header is still set
   });
 });
 

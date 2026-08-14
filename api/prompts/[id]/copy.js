@@ -30,7 +30,29 @@ function normalizeDbId(id) {
   return (id || "").replace(/-/g, "").toLowerCase();
 }
 
+// Wraps the fetch call itself (network-level failures throw inside
+// fetch(), not as a rejected/non-2xx response — diff-review round 1 P1
+// finding, same class as api/prompts.js's notionRequest). Converts any
+// transport failure into the same {ok:false, json:null} shape a bad
+// HTTP status already produces.
+async function notionFetch(url, options) {
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (e) {
+    console.error("Notion request transport failure", url, e.message);
+    return { ok: false, status: 0, json: null };
+  }
+  const json = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
 module.exports = async function handler(req, res) {
+  // No caching of prompt-content responses at any layer (diff-review
+  // round 1 P1 finding) — set unconditionally, before any early return,
+  // so every response path (success and every error) carries it.
+  res.setHeader("Cache-Control", "no-store");
+
   // Method check FIRST, before any Notion call.
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -56,13 +78,13 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const getRes = await fetch(`https://api.notion.com/v1/pages/${id}`, {
+  const getResult = await notionFetch(`https://api.notion.com/v1/pages/${id}`, {
     method: "GET",
     headers: notionHeaders(),
   });
-  const page = await getRes.json().catch(() => null);
+  const page = getResult.json;
 
-  if (!getRes.ok || !page) {
+  if (!getResult.ok || !page) {
     res.status(404).json({ error: "Prompt not found." });
     return;
   }
@@ -104,18 +126,17 @@ module.exports = async function handler(req, res) {
   const ts = nowIso();
   const payload = buildCopyUpdatePayload(currentCount, ts);
 
-  const patchRes = await fetch(`https://api.notion.com/v1/pages/${id}`, {
+  const patchResult = await notionFetch(`https://api.notion.com/v1/pages/${id}`, {
     method: "PATCH",
     headers: notionHeaders(),
     body: JSON.stringify(payload),
   });
-  const patched = await patchRes.json().catch(() => null);
 
-  if (!patchRes.ok || !patched) {
+  if (!patchResult.ok || !patchResult.json) {
     console.error(
       "Notion page update (copy) failed",
-      patchRes.status,
-      patched && patched.message
+      patchResult.status,
+      patchResult.json && patchResult.json.message
     );
     res.status(502).json({ error: "Failed to update usage count." });
     return;

@@ -64,6 +64,7 @@
         skippedCount: 0,
         truncated: false,
         loaded: false,
+        query: "",
       };
 
       var searchEl = document.getElementById("search");
@@ -94,17 +95,25 @@
       }
 
       async function fetchPrompts() {
-        var res = await fetch("/api/prompts");
-        if (!res.ok) {
+        // Wrapped in try/catch — a network-level failure throws inside
+        // fetch() itself, not just a non-ok response; previously
+        // unhandled here, leaving the library silently blank with no
+        // error shown (diff-review round 1 P1 finding).
+        try {
+          var res = await fetch("/api/prompts");
+          if (!res.ok) {
+            renderLibraryError("Could not load the prompt library.");
+            return;
+          }
+          var data = await res.json();
+          state.prompts = data.prompts || [];
+          state.skippedCount = data.skippedCount || 0;
+          state.truncated = Boolean(data.truncated);
+          state.loaded = true;
+          renderLibrary();
+        } catch (e) {
           renderLibraryError("Could not load the prompt library.");
-          return;
         }
-        var data = await res.json();
-        state.prompts = data.prompts || [];
-        state.skippedCount = data.skippedCount || 0;
-        state.truncated = Boolean(data.truncated);
-        state.loaded = true;
-        renderLibrary();
       }
 
       function renderLibraryError(message) {
@@ -135,7 +144,15 @@
         }
 
         clearChildren(libraryList);
-        var sorted = window.PromptMatching.filterPrompts(state.prompts, "");
+        // Filtered/sorted by the CURRENT search query — previously
+        // hardcoded to "" (matches everything), so the library never
+        // actually reflected what you typed (diff-review round 1 P1
+        // finding: live full-text search was advertised but not wired
+        // up). state.query is kept in sync by the input listener below
+        // and is untouched by re-renders triggered for other reasons
+        // (e.g. a copy-count refresh), so the current filter is
+        // preserved across those.
+        var sorted = window.PromptMatching.filterPrompts(state.prompts, state.query);
         for (var i = 0; i < sorted.length; i++) {
           var p = sorted[i];
           var li = document.createElement("li");
@@ -147,8 +164,14 @@
 
       var pendingDuplicateWarningText = null;
 
+      function onSearchInput() {
+        state.query = searchEl.value;
+        renderLibrary();
+        renderSearchState();
+      }
+
       function renderSearchState() {
-        var query = searchEl.value;
+        var query = state.query;
         var result = window.PromptMatching.resolveSearchState(state.prompts, query);
 
         clearChildren(activePanelInner);
@@ -249,7 +272,6 @@
             var err = await res.json().catch(function () {
               return {};
             });
-            createBtn.disabled = false;
             alert(err.error || "Could not save the new prompt.");
             return;
           }
@@ -261,12 +283,18 @@
             : null;
           createPanel.hidden = true;
           showActive(data.prompt, note);
+        } catch (e) {
+          // A network-level failure throws inside fetch() itself, not a
+          // rejected/non-ok response — previously unhandled here, so a
+          // network error left the button spinner-less with no feedback
+          // at all (diff-review round 1 P1 finding).
+          alert("Could not save the new prompt — a network error occurred.");
         } finally {
           createBtn.disabled = false;
         }
       }
 
-      searchEl.addEventListener("input", renderSearchState);
+      searchEl.addEventListener("input", onSearchInput);
 
       fetchPrompts();
     })();
