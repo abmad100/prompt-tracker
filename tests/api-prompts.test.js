@@ -98,7 +98,10 @@ test("GET returns paginated, mapped prompts sorted by count", async () => {
         ok: true,
         status: 200,
         json: async () => ({
-          results: [realDatabasePage("low", 1, "id-1"), realDatabasePage("high", 9, "id-2")],
+          results: [
+            realDatabasePage("low", 1, "11111111-1111-1111-1111-111111111111"),
+            realDatabasePage("high", 9, "22222222-2222-2222-2222-222222222222"),
+          ],
           has_more: false,
         }),
       };
@@ -127,7 +130,10 @@ test("GET folds malformed records into skippedCount, doesn't crash", async () =>
       ok: true,
       status: 200,
       json: async () => ({
-        results: [{ id: "bad-1", properties: {} }, realDatabasePage("ok", 2, "id-2")],
+        results: [
+          { id: "bad-1", properties: {} }, // deliberately malformed id AND properties
+          realDatabasePage("ok", 2, "33333333-3333-3333-3333-333333333333"),
+        ],
         has_more: false,
       }),
     });
@@ -156,7 +162,13 @@ test("GET marks truncated when the page cap is hit with more remaining", async (
         ok: true,
         status: 200,
         json: async () => ({
-          results: [realDatabasePage(`p${calls}`, calls, `id-${calls}`)],
+          results: [
+            realDatabasePage(
+              `p${calls}`,
+              calls,
+              `44444444-4444-4444-4444-${String(calls).padStart(12, "0")}`
+            ),
+          ],
           has_more: true,
           next_cursor: `cursor-${calls}`,
         }),
@@ -236,7 +248,7 @@ test("POST falls through to create with duplicateCheckIncomplete when the lookup
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+        json: async () => realDatabasePage("my new prompt", 0, "55555555-5555-5555-5555-555555555555"),
       };
     };
     try {
@@ -280,7 +292,7 @@ test("POST accepts application/json with charset parameter", async () => {
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("brand new prompt", 0, "new-id"),
+        json: async () => realDatabasePage("brand new prompt", 0, "66666666-6666-6666-6666-666666666666"),
       };
     };
     try {
@@ -374,7 +386,7 @@ test("POST rejects text over 20,000 code points before any chunking/hashing", as
 test("POST returns the existing page (created:false) on a verified duplicate", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;
-    const existing = realDatabasePage("existing prompt", 5, "existing-id");
+    const existing = realDatabasePage("existing prompt", 5, "77777777-7777-7777-7777-777777777777");
     global.fetch = async (url) => {
       if (url.includes("/query")) {
         return { ok: true, status: 200, json: async () => ({ results: [existing] }) };
@@ -394,7 +406,7 @@ test("POST returns the existing page (created:false) on a verified duplicate", a
       await p;
       assert.equal(res.statusCode, 200);
       assert.equal(res.body.created, false);
-      assert.equal(res.body.prompt.id, "existing-id");
+      assert.equal(res.body.prompt.id, "77777777-7777-7777-7777-777777777777");
     } finally {
       global.fetch = origFetch;
     }
@@ -406,7 +418,7 @@ test("POST sets duplicateCheckIncomplete when candidates existed but none verifi
     const origFetch = global.fetch;
     // A candidate sharing the hash by coincidence/corruption, but whose
     // actual normalized text differs.
-    const unrelated = realDatabasePage("totally unrelated text", 1, "unrelated-id");
+    const unrelated = realDatabasePage("totally unrelated text", 1, "88888888-8888-8888-8888-888888888888");
     global.fetch = async (url) => {
       if (url.includes("/query")) {
         return { ok: true, status: 200, json: async () => ({ results: [unrelated] }) };
@@ -414,7 +426,7 @@ test("POST sets duplicateCheckIncomplete when candidates existed but none verifi
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+        json: async () => realDatabasePage("my new prompt", 0, "55555555-5555-5555-5555-555555555555"),
       };
     };
     try {
@@ -449,7 +461,7 @@ test("POST sets duplicateCheckIncomplete when the duplicate-lookup query itself 
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+        json: async () => realDatabasePage("my new prompt", 0, "55555555-5555-5555-5555-555555555555"),
       };
     };
     try {
@@ -500,7 +512,7 @@ test("POST rejects a create response that fails shape validation instead of trus
       }
       // The create call "succeeds" transport-wise but the returned page
       // is missing required properties — must not be trusted as-is.
-      return { ok: true, status: 200, json: async () => ({ id: "created-id", properties: {} }) };
+      return { ok: true, status: 200, json: async () => ({ id: "55555555-5555-5555-5555-555555555555", properties: {} }) };
     };
     try {
       delete require.cache[require.resolve("../api/prompts.js")];
@@ -528,7 +540,7 @@ test("POST skips a shape-invalid duplicate candidate instead of trusting it, and
     // (Count is malformed) — must be skipped, not trusted as a
     // genuine duplicate, and must still be treated as an unverified
     // candidate.
-    const malformedCandidate = realDatabasePage("my new prompt", 0, "malformed-id");
+    const malformedCandidate = realDatabasePage("my new prompt", 0, "99999999-9999-9999-9999-999999999999");
     malformedCandidate.properties.Count.number = -1;
     global.fetch = async (url) => {
       if (url.includes("/query")) {
@@ -537,7 +549,7 @@ test("POST skips a shape-invalid duplicate candidate instead of trusting it, and
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("my new prompt", 0, "created-id"),
+        json: async () => realDatabasePage("my new prompt", 0, "55555555-5555-5555-5555-555555555555"),
       };
     };
     try {
@@ -553,7 +565,7 @@ test("POST skips a shape-invalid duplicate candidate instead of trusting it, and
       await p;
       assert.equal(res.statusCode, 201);
       assert.equal(res.body.created, true);
-      assert.equal(res.body.prompt.id, "created-id"); // created fresh, NOT the malformed candidate
+      assert.equal(res.body.prompt.id, "55555555-5555-5555-5555-555555555555"); // created fresh, NOT the malformed candidate
       assert.equal(res.body.duplicateCheckIncomplete, true);
     } finally {
       global.fetch = origFetch;
@@ -575,7 +587,7 @@ test("POST rejects a create response that's internally consistent but represents
       return {
         ok: true,
         status: 200,
-        json: async () => realDatabasePage("some other prompt entirely", 0, "wrong-record-id"),
+        json: async () => realDatabasePage("some other prompt entirely", 0, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
       };
     };
     try {

@@ -206,6 +206,14 @@ module.exports = async function handler(req, res) {
   }
 
   const patched = parseNotionPage(patchedPage);
+  // Exact string comparison, deliberately — by the time patched.lastUsed
+  // reaches here it has already passed isValidIso8601's own strict
+  // canonical-form check (inside isValidPromptRecordShape, above), and
+  // within that exact format exact-string-equality and semantic-
+  // instant-equality are the same thing (see lib/notion.js's own
+  // ISO_8601_STRICT_RE comment for the full reasoning and the
+  // disclosed, unverified Notion-date-round-trip-fidelity assumption
+  // this ultimately rests on — diff-review round 6 P1 finding).
   if (patched.count !== currentCount + 1 || patched.lastUsed !== ts) {
     console.error(
       "Notion page update (copy) response does not match the requested update",

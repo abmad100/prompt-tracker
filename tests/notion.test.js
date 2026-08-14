@@ -235,6 +235,24 @@ test("isValidPromptRecordShape rejects a non-canonical Last Used date", () => {
   assert.equal(notion.isValidPromptRecordShape(page), false);
 });
 
+test("isValidPromptRecordShape rejects a record whose own id is malformed, even if every property is otherwise valid (diff-review round 6 P1)", () => {
+  const page = fakePage();
+  page.id = "not-a-real-id";
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape rejects a record with no id at all, without crashing", () => {
+  const page = fakePage();
+  delete page.id;
+  assert.equal(notion.isValidPromptRecordShape(page), false);
+});
+
+test("isValidPromptRecordShape accepts a genuine record whose id is the non-hyphenated UUID form", () => {
+  const page = fakePage();
+  page.id = "abcdef1234567890abcdef1234567890";
+  assert.equal(notion.isValidPromptRecordShape(page), true);
+});
+
 test("isValidPromptRecordShape rejects a tampered record (normalized text doesn't match recomputation)", () => {
   const page = fakePage();
   // Corrupt the stored Normalized Text without updating Prompt Text.
