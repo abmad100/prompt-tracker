@@ -375,6 +375,33 @@ test("isSameOrigin rejects a mismatched (attacker) origin", () => {
   delete process.env.ALLOWED_ORIGIN;
 });
 
+test("isSameOrigin logs a distinct configuration error (not just a bare rejection) when the trusted origin can't be determined (diff-review round 2 P2)", () => {
+  const prevAllowed = process.env.ALLOWED_ORIGIN;
+  const prevVercel = process.env.VERCEL_URL;
+  // A malformed configured value (not just "unset") hits the exact same
+  // catch branch as neither var being set at all — both reach
+  // expectedOrigin()'s own `new URL(raw)` throw.
+  process.env.ALLOWED_ORIGIN = "not a valid url";
+  delete process.env.VERCEL_URL;
+  const origError = console.error;
+  const calls = [];
+  console.error = (...args) => calls.push(args);
+  try {
+    const req = { headers: { origin: "https://example.com" } };
+    assert.equal(notion.isSameOrigin(req), false); // behavior unchanged: still fails closed
+    assert.ok(
+      calls.some((args) => String(args[0]).includes("isSameOrigin")),
+      "expected a distinct isSameOrigin() configuration-error log line"
+    );
+  } finally {
+    console.error = origError;
+    if (prevAllowed === undefined) delete process.env.ALLOWED_ORIGIN;
+    else process.env.ALLOWED_ORIGIN = prevAllowed;
+    if (prevVercel === undefined) delete process.env.VERCEL_URL;
+    else process.env.VERCEL_URL = prevVercel;
+  }
+});
+
 // ---------------------------------------------------------------------
 // isValidPageId
 // ---------------------------------------------------------------------

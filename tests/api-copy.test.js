@@ -225,7 +225,23 @@ test("read-then-increment-then-write: PATCH payload sets Count+1 and Last Used, 
     global.fetch = async (url, opts) => {
       if (opts && opts.method === "PATCH") {
         patchBody = JSON.parse(opts.body);
-        return { ok: true, status: 200, json: async () => ({ ...page, properties: { ...page.properties, Count: { number: 5 } } }) };
+        // Realistic PATCH response: the properties the request actually
+        // asked to change (Count, Last Used) genuinely reflect the new
+        // values — matching what a real successful Notion update
+        // returns. copy.js now verifies and reports FROM this response
+        // (diff-review round 2 P2 finding), not from local computation.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...page,
+            properties: {
+              ...page.properties,
+              Count: { number: 5 },
+              "Last Used": { date: { start: patchBody.properties["Last Used"].date.start } },
+            },
+          }),
+        };
       }
       return { ok: true, status: 200, json: async () => page };
     };
@@ -322,6 +338,67 @@ test("a Notion GET 404 (page truly doesn't exist) surfaces as a clean 404", asyn
       const res = fakeRes();
       await handler(req, res);
       assert.equal(res.statusCode, 404);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("rejects (502) a PATCH response that fails shape validation instead of trusting locally-computed values (diff-review round 2 P2)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Transport-level success, but the returned page is malformed
+        // (missing required properties) — must not be trusted.
+        return { ok: true, status: 200, json: async () => ({ id: page.id, properties: {} }) };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
+test("rejects (502) a shape-valid PATCH response whose Last Used is still null (update didn't actually land) (diff-review round 2 P2)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        // Shape-valid, but Last Used is still null — the update the
+        // request asked for didn't actually land in what Notion
+        // returned, despite a 200.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ...page, properties: { ...page.properties, Count: { number: 5 } } }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 502);
     } finally {
       global.fetch = origFetch;
     }

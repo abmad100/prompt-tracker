@@ -12,6 +12,7 @@ const {
   isValidPageId,
   buildCopyUpdatePayload,
   isValidPromptRecordShape,
+  parseNotionPage,
 } = require("../../../lib/notion.js");
 
 function notionHeaders() {
@@ -142,5 +143,32 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  res.status(200).json({ count: currentCount + 1, lastUsed: ts });
+  // Verify the PATCH response itself rather than blindly trusting the
+  // locally-computed values (diff-review round 2 P2 finding) — report
+  // what Notion's own response actually confirms landed, not just what
+  // we expected to have written. This doesn't change the app's already-
+  // documented, accepted read-modify-write concurrency limitation (a
+  // genuinely concurrent second write can still land after this one) —
+  // it only ensures a SUCCESSFUL response is never based on an
+  // unvalidated or self-inconsistent PATCH result.
+  if (!isValidPromptRecordShape(patchResult.json)) {
+    console.error(
+      "Notion page update (copy) returned a record that failed shape validation",
+      patchResult.json && patchResult.json.id
+    );
+    res.status(502).json({ error: "Failed to confirm the usage count update." });
+    return;
+  }
+
+  const patched = parseNotionPage(patchResult.json);
+  if (patched.count === null || !patched.lastUsed) {
+    console.error(
+      "Notion page update (copy) response is missing count/lastUsed",
+      patchResult.json && patchResult.json.id
+    );
+    res.status(502).json({ error: "Failed to confirm the usage count update." });
+    return;
+  }
+
+  res.status(200).json({ count: patched.count, lastUsed: patched.lastUsed });
 };

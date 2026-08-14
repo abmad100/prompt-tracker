@@ -181,19 +181,28 @@
         if (result.state === "match") {
           showActive(result.prompt);
         } else if (result.state === "create") {
-          createPanel.hidden = state.truncated; // disabled while
-          // truncated, per round 12's fix — creating against a known-
-          // incomplete view risks a genuine duplicate beyond the loaded
-          // window.
-          if (!createPanel.hidden) {
-            clearChildren(createBtn);
-            createBtn.appendChild(
-              textEl("span", '+ Create new prompt with this text')
-            );
-            createBtn.onclick = function () {
-              createPrompt(query);
-            };
-          }
+          // NOT gated on state.truncated. Round 12 of the plan review
+          // disabled this when the library view was truncated, on the
+          // premise that duplicate detection "can't see beyond the
+          // loaded window" — but POST /api/prompts's own duplicate
+          // check queries Notion directly by hash, server-side,
+          // completely independent of what's loaded here; truncation
+          // only affects this client-side exact-match HINT (which can
+          // occasionally miss a match beyond the loaded window and
+          // suggest "create" when one already exists), never the
+          // actual duplicate-prevention guarantee — the server-side
+          // check still resolves to the existing record either way.
+          // Gating create on truncation blocked legitimate saves for
+          // no real protective benefit (diff-review round 2 P2
+          // finding — corrected here and in README.md).
+          clearChildren(createBtn);
+          createBtn.appendChild(
+            textEl("span", '+ Create new prompt with this text')
+          );
+          createBtn.onclick = function () {
+            createPrompt(query);
+          };
+          createPanel.hidden = false;
         }
       }
 

@@ -435,6 +435,41 @@ test("POST rejects a create response that fails shape validation instead of trus
   });
 });
 
+test("POST rejects a create response that's internally consistent but represents different content than submitted (diff-review round 2 P1)", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    global.fetch = async (url) => {
+      if (url.includes("/query")) {
+        return { ok: true, status: 200, json: async () => ({ results: [] }) };
+      }
+      // The create call "succeeds" and the returned page is internally
+      // shape-consistent (its own hash matches its own normalized
+      // text) — but it's for TOTALLY DIFFERENT content than what this
+      // request actually submitted. Must be rejected, not trusted.
+      return {
+        ok: true,
+        status: 200,
+        json: async () => realDatabasePage("some other prompt entirely", 0, "wrong-record-id"),
+      };
+    };
+    try {
+      delete require.cache[require.resolve("../api/prompts.js")];
+      const handler = require("../api/prompts.js");
+      const req = fakeReq({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "https://example.vercel.app" },
+      });
+      const res = fakeRes();
+      const p = handler(req, res);
+      emitBody(req, JSON.stringify({ text: "a brand new prompt" }));
+      await p;
+      assert.equal(res.statusCode, 502);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("GET and POST responses carry Cache-Control: no-store (diff-review round 1 P1)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;

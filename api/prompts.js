@@ -259,10 +259,14 @@ async function handlePost(req, res) {
   // the target of a copy. A malformed create response (schema drift,
   // an unconfirmed edge in Notion's own API behavior) must not enter
   // client state as a trusted record (diff-review round 1 P2 finding).
+  // Only the page id is logged on failure, never the full response —
+  // it embeds the actual prompt text (diff-review round 2 P1 finding:
+  // the original version of this check logged createResult.json
+  // wholesale, writing prompt content into platform logs).
   if (!isValidPromptRecordShape(createResult.json)) {
     console.error(
       "Notion page create returned a record that failed shape validation",
-      createResult.json
+      createResult.json && createResult.json.id
     );
     res
       .status(502)
@@ -271,6 +275,21 @@ async function handlePost(req, res) {
   }
 
   const parsed = parseNotionPage(createResult.json);
+
+  // The response isn't just internally self-consistent — it must
+  // actually represent what THIS request submitted, not some other
+  // (also internally-consistent) page returned in error (diff-review
+  // round 2 P1 finding).
+  if (parsed.normalizedText !== normalizedText) {
+    console.error(
+      "Notion page create returned a record for different content than submitted",
+      createResult.json && createResult.json.id
+    );
+    res
+      .status(502)
+      .json({ error: "Failed to save the new prompt (unexpected response)." });
+    return;
+  }
   const responseBody = { prompt: parsed, created: true };
   if (duplicateCheckIncomplete) {
     responseBody.duplicateCheckIncomplete = true;

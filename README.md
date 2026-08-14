@@ -98,10 +98,17 @@ judged not proportionate to the risk it would close.
   silently guaranteeing uniqueness.
 - **The library view is capped at the first 5,000 records** (50 pages of
   Notion's own page size). If your library grows past that, `truncated:
-  true` is returned, a warning is shown, and creating new prompts is
-  disabled from that state (since duplicate detection can't see beyond the
-  loaded window) until the underlying library is pruned or this cap is
-  revisited.
+  true` is returned and a warning is shown. This only affects *browsing* —
+  what you can see and scroll through, and the client-side exact-match
+  hint that decides whether to show "this prompt already exists" vs.
+  "create new" as you type. **It does not affect duplicate prevention on
+  create**: `POST /api/prompts` runs its own hash-based lookup directly
+  against Notion, server-side, independent of what's loaded in the
+  browser — so creating new prompts is never disabled just because the
+  view is truncated (diff-review round 2 finding — an earlier version of
+  this app incorrectly disabled creation in this state, on the mistaken
+  premise that server-side duplicate detection depended on the loaded
+  window; it doesn't).
 - **No rate limiting, per-caller audit logging, or request correlation
   IDs.** Generic Vercel platform logs are the only operational visibility.
   Considered and declined as disproportionate for a personal, Deployment-
