@@ -1,37 +1,41 @@
 /* styles.css — Prompt Tracker
-   "Warm & Personal" visual direction (2026-08-15) -- this is Mose's own
-   personal tool, not a public-facing product, so the palette leans warm/
-   cream rather than the generic blue-on-white SaaS default. Colors are
-   defined in OKLCH (oklch(L% C H)): stepping the L (lightness) channel by
-   a fixed amount produces a consistent perceived brightness step
-   regardless of hue, which is what makes deriving hover/active states
-   and a matching dark theme from one accent hue (H=40-45, warm terracotta/
-   amber) a formula rather than hand-picked hex values per state. Browser
-   support (Chrome 111+, Safari 15.4+, Firefox 113+) covers ~93-95% of
-   users as of 2026 -- no hex fallback is provided, matching this app's
-   own personal-use-only scope (Deployment Protection already restricts
-   access to Mose's own account, so an old-browser visitor isn't a real
-   audience to design around). */
+   "Refined Neutral" visual direction (2026-08-15, superseding an earlier
+   same-day "Warm & Personal" attempt Mose didn't like -- reverted to
+   this instead). Linear/Notion-style: cool-neutral grays (barely-there
+   warm tint in light mode, not a full warm/cream palette) with one
+   restrained indigo accent. Colors are defined in OKLCH (oklch(L% C H)):
+   stepping the L (lightness) channel by a fixed amount produces a
+   consistent perceived brightness step regardless of hue, which is what
+   makes deriving hover/active states and a matching dark theme from one
+   accent hue (H=264, indigo) a formula rather than hand-picked hex
+   values per state. Browser support (Chrome 111+, Safari 15.4+, Firefox
+   113+) covers ~93-95% of users as of 2026 -- no hex fallback is
+   provided, matching this app's own personal-use-only scope (Deployment
+   Protection already restricts access to Mose's own account, so an
+   old-browser visitor isn't a real audience to design around). */
 
 :root {
   color-scheme: light dark;
 
-  /* Warm cream background, warm near-black text -- H=40/80 keeps every
-     token in the same warm hue family rather than a neutral gray. */
-  --bg: oklch(97% 0.01 80);
-  --fg: oklch(24% 0.02 40);
-  --muted: oklch(52% 0.015 60);
-  --border: oklch(88% 0.015 70);
+  /* Near-white background, near-black text -- barely-there warm tint
+     (C=0.004, almost achromatic) rather than a full warm palette; a
+     slight cool tint on --fg (H=260) keeps the whole scheme reading as
+     neutral-with-a-cool-lean, matching the indigo accent's own hue
+     family, rather than a flat gray with zero relationship to it. */
+  --bg: oklch(98% 0.004 90);
+  --fg: oklch(22% 0.01 260);
+  --muted: oklch(50% 0.01 260);
+  --border: oklch(90% 0.006 260);
 
-  /* Terracotta/amber accent, with hover/active derived by stepping L
-     down (darker = more "pressed") at the same C/H -- not separate,
-     hand-picked colors. --accent-fg is the text/icon color placed ON
-     the accent (e.g. button labels), chosen for contrast against the
-     mid-lightness accent rather than assuming plain white always works. */
-  --accent: oklch(62% 0.15 45);
-  --accent-hover: oklch(56% 0.16 45);
-  --accent-active: oklch(50% 0.17 45);
-  --accent-fg: oklch(99% 0.005 80);
+  /* Indigo accent, with hover/active derived by stepping L down (darker
+     = more "pressed") at the same C/H -- not separate, hand-picked
+     colors. --accent-fg is the text/icon color placed ON the accent
+     (e.g. button labels), chosen for contrast against the mid-lightness
+     accent rather than assuming plain white always works. */
+  --accent: oklch(58% 0.16 264);
+  --accent-hover: oklch(52% 0.17 264);
+  --accent-active: oklch(46% 0.18 264);
+  --accent-fg: oklch(99% 0.002 264);
   /* Explicit translucent token for the search-focus ring, rather than
      CSS relative color syntax (oklch(from var(--accent) ...)) -- that
      syntax has narrower browser support than plain oklch() (~Chrome
@@ -40,52 +44,55 @@
      box-shadow declaration invalid, silently dropping the focus ring
      entirely -- an accessibility regression, not just a missed visual
      effect. A second explicit token carries no such risk. */
-  --accent-ring: oklch(62% 0.15 45 / 0.18);
+  --accent-ring: oklch(58% 0.16 264 / 0.18);
 
-  --warn-bg: oklch(93% 0.05 85);
-  --warn-fg: oklch(35% 0.08 70);
+  --warn-bg: oklch(93% 0.05 95);
+  --warn-fg: oklch(35% 0.08 80);
 
-  --hover-bg: oklch(94% 0.015 75);
+  --hover-bg: oklch(95% 0.006 260);
 
-  /* Soft panel elevation replaces the old flat 1px border -- a warm-
-     tinted, low-opacity two-layer shadow (Material-style: a tight,
+  /* Soft panel elevation replaces the old flat 1px border -- a cool-
+     neutral, low-opacity two-layer shadow (Material-style: a tight,
      darker layer + a wider, softer layer) reads as gentle depth rather
      than a hard outline. */
-  --panel-shadow: 0 1px 3px oklch(40% 0.02 50 / 0.08), 0 2px 8px oklch(40% 0.02 50 / 0.06);
+  --panel-shadow: 0 1px 3px oklch(20% 0.01 260 / 0.06), 0 2px 8px oklch(20% 0.01 260 / 0.05);
 
   /* The copy-success pulse color -- a brighter, more saturated version
      of the accent, used only for the brief success-feedback animation
-     below, never as a static token elsewhere. */
-  --success-pulse: oklch(74% 0.16 55);
+     below, never as a static token elsewhere. Deliberately stays in the
+     same indigo hue family rather than introducing a second (e.g.
+     conventional "success green") color -- "one restrained accent" is
+     the whole point of this direction. */
+  --success-pulse: oklch(70% 0.15 264);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Warm dark brown-black, not a flat neutral gray -- keeps the same
-       hue family (H=50/70) as the light theme instead of desaturating
-       to generic charcoal. */
-    --bg: oklch(20% 0.015 50);
-    --fg: oklch(92% 0.01 70);
-    --muted: oklch(65% 0.02 60);
-    --border: oklch(32% 0.02 55);
+    /* Cool-neutral near-black, not a flat achromatic gray -- keeps the
+       same hue family (H=260) as the light theme instead of
+       desaturating to generic charcoal. */
+    --bg: oklch(14% 0.008 260);
+    --fg: oklch(93% 0.006 260);
+    --muted: oklch(62% 0.012 260);
+    --border: oklch(30% 0.012 260);
 
-    /* Brighter amber for dark-mode contrast; --accent-fg switches to a
-       dark warm-brown rather than white, since white-on-bright-amber
-       reads washed out where dark-on-amber holds real contrast. */
-    --accent: oklch(68% 0.14 45);
-    --accent-hover: oklch(74% 0.14 45);
-    --accent-active: oklch(80% 0.13 45);
-    --accent-fg: oklch(15% 0.02 50);
-    --accent-ring: oklch(68% 0.14 45 / 0.25);
+    /* Brighter indigo for dark-mode contrast; --accent-fg switches to a
+       dark cool-neutral rather than white, since white-on-bright-indigo
+       reads washed out where dark-on-indigo holds real contrast. */
+    --accent: oklch(68% 0.15 264);
+    --accent-hover: oklch(74% 0.14 264);
+    --accent-active: oklch(80% 0.13 264);
+    --accent-fg: oklch(14% 0.01 260);
+    --accent-ring: oklch(68% 0.15 264 / 0.25);
 
-    --warn-bg: oklch(30% 0.05 70);
-    --warn-fg: oklch(85% 0.06 75);
+    --warn-bg: oklch(28% 0.05 90);
+    --warn-fg: oklch(85% 0.06 85);
 
-    --hover-bg: oklch(26% 0.02 55);
+    --hover-bg: oklch(22% 0.012 260);
 
     --panel-shadow: 0 1px 3px oklch(0% 0 0 / 0.35), 0 2px 8px oklch(0% 0 0 / 0.25);
 
-    --success-pulse: oklch(78% 0.15 55);
+    --success-pulse: oklch(78% 0.14 264);
   }
 }
 
@@ -142,7 +149,7 @@ main {
   margin: 1.25rem 0;
   padding: 1.25rem;
   background: var(--bg);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: var(--panel-shadow);
 }
 
@@ -202,9 +209,10 @@ button:disabled {
   color: var(--accent-hover);
 }
 
-/* Copy-success feedback: a brief warm-amber pulse on the button that
-   was just clicked, color-only (no icon) -- the button's background
-   flashes to --success-pulse and eases back to its resting --accent,
+/* Copy-success feedback: a brief brighter-indigo pulse on the button
+   that was just clicked, color-only (no icon) -- the button's
+   background flashes to --success-pulse and eases back to its resting
+   --accent,
    giving positive feedback without adding a checkmark glyph. Applied/
    removed via a small JS hook (index.html doCopy()) only on a
    genuinely successful copy; a tracking failure or clipboard failure
@@ -259,7 +267,7 @@ button.pulse-success {
    Button-reset properties (background/border/font/width/text-align)
    keep it row-like; the hover/focus rule + a slightly larger radius
    than the old flat design is the only new visible affordance,
-   matching the softer, warmer panel treatment above. */
+   matching the softer, shadow-elevated panel treatment above. */
 #library-list .library-row {
   display: flex;
   justify-content: space-between;
