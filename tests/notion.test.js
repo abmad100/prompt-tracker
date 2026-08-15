@@ -295,6 +295,11 @@ test("isValidPromptRecordShape rejects a Prompt Text that's whitespace-only afte
   assert.equal(notion.isValidPromptRecordShape(page), false);
 });
 
+test("isValidPromptRecordShape accepts a genuine record whose Created date uses Notion's real +00:00 form (confirmed live 2026-08-15 -- the exact record that first triggered README's 'record(s) could not be loaded' warning in production)", () => {
+  const page = fakePage({ created: "2026-08-15T01:17:00.000+00:00" });
+  assert.equal(notion.isValidPromptRecordShape(page), true);
+});
+
 // ---------------------------------------------------------------------
 // isValidIso8601 — exact canonical form + rollover rejection
 // ---------------------------------------------------------------------
@@ -314,6 +319,19 @@ test("isValidIso8601 rejects non-canonical forms", () => {
 test("isValidIso8601 rejects a rollover value via round-trip check", () => {
   // Feb 30 doesn't exist; Date silently rolls it over to March.
   assert.equal(notion.isValidIso8601("2026-02-30T00:00:00.000Z"), false);
+});
+
+test("isValidIso8601 accepts Notion's real +00:00 read-back form (confirmed live 2026-08-15, first real production write)", () => {
+  assert.equal(notion.isValidIso8601("2026-08-15T01:17:00.000+00:00"), true);
+});
+
+test("isValidIso8601 rejects a rollover value in +00:00 form too (round-trip check must apply to both forms)", () => {
+  assert.equal(notion.isValidIso8601("2026-02-30T00:00:00.000+00:00"), false);
+});
+
+test("isValidIso8601 rejects a genuinely non-zero offset, even with correct millisecond formatting (only Z/+00:00 represent the same instant)", () => {
+  assert.equal(notion.isValidIso8601("2026-08-14T09:00:00.000+05:00"), false);
+  assert.equal(notion.isValidIso8601("2026-08-14T09:00:00.000-04:00"), false);
 });
 
 // ---------------------------------------------------------------------
