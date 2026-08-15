@@ -7,6 +7,7 @@
   --accent: #2563eb;
   --warn-bg: #fff3cd;
   --warn-fg: #664d03;
+  --hover-bg: #f2f2f2;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,6 +19,7 @@
     --accent: #6ea8ff;
     --warn-bg: #4a3b0a;
     --warn-fg: #ffe08a;
+    --hover-bg: #23262c;
   }
 }
 
@@ -135,11 +137,33 @@ button:disabled {
 }
 
 #library-list li {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Real <button>, styled to look like the plain row it replaced — a
+   clickable library row is the fix for a real UX gap (the library view
+   only ever showed a 60-char preview with no way to select/copy a
+   prompt directly). Button-reset properties (background/border/font/
+   width/text-align) keep it visually identical to the old <li>; the
+   hover/focus rule is the only new visible affordance. */
+#library-list .library-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 1rem;
+  width: 100%;
   padding: 0.6rem 0.25rem;
-  border-bottom: 1px solid var(--border);
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+#library-list .library-row:hover,
+#library-list .library-row:focus-visible {
+  background: var(--hover-bg);
 }
 
 #library-list .preview {

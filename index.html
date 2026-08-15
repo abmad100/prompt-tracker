@@ -164,10 +164,41 @@
         for (var i = 0; i < sorted.length; i++) {
           var p = sorted[i];
           var li = document.createElement("li");
-          li.appendChild(textEl("span", preview(p.promptText, 60), "preview"));
-          li.appendChild(textEl("span", String(p.count), "count"));
+          // Real <button>, not a bare click listener on the <li> — free
+          // keyboard accessibility (focusable, activates on Enter/Space)
+          // and matches every other interactive element in this app
+          // (copyBtn, createBtn). This is the fix for the real UX gap
+          // Mose hit live: the library view only ever showed a 60-char
+          // preview with no way to select/copy a prompt directly — the
+          // only path to the Copy button was retyping the prompt's full,
+          // exact text into search, which is undiscoverable for anything
+          // longer than the preview.
+          var row = document.createElement("button");
+          row.type = "button";
+          row.className = "library-row";
+          row.appendChild(textEl("span", preview(p.promptText, 60), "preview"));
+          row.appendChild(textEl("span", String(p.count), "count"));
+          row.addEventListener("click", function (prompt) {
+            return function () {
+              selectPromptFromLibrary(prompt);
+            };
+          }(p));
+          li.appendChild(row);
           libraryList.appendChild(li);
         }
+      }
+
+      // Selecting a prompt directly from the library list — reuses the
+      // exact same active-prompt panel + Copy button an exact search
+      // match already shows, so there's only one display path for "a
+      // prompt is active," not a second parallel one to keep in sync.
+      // Deliberately does NOT touch state.query or the search box: a
+      // library click is independent of whatever's currently typed
+      // there, and typing something new afterward correctly re-runs
+      // renderSearchState() and takes over the active panel again.
+      function selectPromptFromLibrary(prompt) {
+        createPanel.hidden = true;
+        showActive(prompt);
       }
 
       var pendingDuplicateWarningText = null;
