@@ -1,99 +1,79 @@
 /* styles.css — Prompt Tracker
-   "Refined Neutral" visual direction (2026-08-15, superseding an earlier
-   same-day "Warm & Personal" attempt Mose didn't like -- reverted to
-   this instead). Linear/Notion-style: cool-neutral grays (barely-there
-   warm tint in light mode, not a full warm/cream palette) with one
-   restrained indigo accent. Colors are defined in OKLCH (oklch(L% C H)):
-   stepping the L (lightness) channel by a fixed amount produces a
-   consistent perceived brightness step regardless of hue, which is what
-   makes deriving hover/active states and a matching dark theme from one
-   accent hue (H=264, indigo) a formula rather than hand-picked hex
-   values per state. Browser support (Chrome 111+, Safari 15.4+, Firefox
-   113+) covers ~93-95% of users as of 2026 -- no hex fallback is
-   provided, matching this app's own personal-use-only scope (Deployment
-   Protection already restricts access to Mose's own account, so an
-   old-browser visitor isn't a real audience to design around). */
+   "Extreme yet Elegant" visual direction (2026-08-15, third iteration --
+   the first two, "Warm & Personal" and "Refined Neutral," were both
+   adaptive light/dark and read as too restrained). Mose asked for
+   something bolder. Research grounding (see the workstream LL doc for
+   full citations): Linear, Raycast, and Arc all converge on the same
+   formula for "premium tool" aesthetics -- a deliberately COMMITTED
+   near-black canvas (not a light/dark toggle: one confident look is
+   what makes it read as considered rather than generic), layered
+   darkness for depth (panels sit on a visibly lighter dark surface than
+   the page floor, never flat black-on-black), exactly one vivid
+   chromatic accent used sparingly rather than color scattered
+   everywhere (Linear's own lavender-blue is the direct model for the
+   accent hue below), and compressed, negative-tracked display
+   typography for headers. Mose explicitly confirmed dropping light-mode
+   support entirely for this -- no @media (prefers-color-scheme) block,
+   by design, not an oversight.
+
+   Colors are defined in OKLCH (oklch(L% C H)) -- stepping the L
+   (lightness) channel by a fixed amount produces a consistent perceived
+   brightness step regardless of hue, which is what makes deriving
+   hover/active states from one accent hue a formula rather than
+   hand-picked values per state. Browser support (Chrome 111+, Safari
+   15.4+, Firefox 113+) covers ~93-95% of users as of 2026 -- no hex
+   fallback, matching this app's own personal-use-only scope (Deployment
+   Protection already restricts access to Mose's own account). */
 
 :root {
-  color-scheme: light dark;
+  /* Deliberately NOT "color-scheme: light dark" -- this app now commits
+     to exactly one appearance regardless of the visitor's OS setting. */
+  color-scheme: dark;
 
-  /* Near-white background, near-black text -- barely-there warm tint
-     (C=0.004, almost achromatic) rather than a full warm palette; a
-     slight cool tint on --fg (H=260) keeps the whole scheme reading as
-     neutral-with-a-cool-lean, matching the indigo accent's own hue
-     family, rather than a flat gray with zero relationship to it. */
-  --bg: oklch(98% 0.004 90);
-  --fg: oklch(22% 0.01 260);
-  --muted: oklch(50% 0.01 260);
-  --border: oklch(90% 0.006 260);
+  /* Layered darkness, not flat black: --bg is the page floor, --surface
+     is one lightness step up (panels), --surface-hover another small
+     step up still (row hover, focus states) -- each layer is a real,
+     visible depth cue on its own, before any shadow is even added. All
+     three share the same faint violet cast (H=264) as the accent, so
+     the whole canvas reads as one cohesive hue family rather than a
+     neutral gray with an unrelated colored accent dropped on top. */
+  --bg: oklch(9% 0.012 264);
+  --surface: oklch(14% 0.015 264);
+  --surface-hover: oklch(19% 0.017 264);
+  --fg: oklch(94% 0.006 264);
+  --muted: oklch(62% 0.012 264);
+  --border: oklch(24% 0.014 264);
 
-  /* Indigo accent, with hover/active derived by stepping L down (darker
-     = more "pressed") at the same C/H -- not separate, hand-picked
-     colors. --accent-fg is the text/icon color placed ON the accent
-     (e.g. button labels), chosen for contrast against the mid-lightness
-     accent rather than assuming plain white always works. */
-  --accent: oklch(58% 0.16 264);
-  --accent-hover: oklch(52% 0.17 264);
-  --accent-active: oklch(46% 0.18 264);
-  --accent-fg: oklch(99% 0.002 264);
-  /* Explicit translucent token for the search-focus ring, rather than
-     CSS relative color syntax (oklch(from var(--accent) ...)) -- that
-     syntax has narrower browser support than plain oklch() (~Chrome
-     119+/Safari 16.4+/Firefox 128+ vs. 111+/15.4+/113+ for oklch()
-     itself), and an unsupported relative-color value makes the WHOLE
-     box-shadow declaration invalid, silently dropping the focus ring
-     entirely -- an accessibility regression, not just a missed visual
-     effect. A second explicit token carries no such risk. */
-  --accent-ring: oklch(58% 0.16 264 / 0.18);
+  /* One vivid lavender-violet accent (directly modeled on Linear's own
+     "#5e6ad2" brand accent, reproduced here in OKLCH), used sparingly --
+     the search focus ring, the primary Copy button, the copy-success
+     pulse, and nothing else. Hover/active go BRIGHTER, not darker --
+     correct for a dark canvas, where "pressed" should intensify/glow
+     rather than recede toward the near-black floor (the opposite of a
+     light-theme button, where pressed conventionally darkens). */
+  --accent: oklch(62% 0.19 275);
+  --accent-hover: oklch(68% 0.18 275);
+  --accent-active: oklch(74% 0.17 275);
+  /* Dark text ON the accent fill -- the accent itself is bright enough
+     against the near-black canvas that white-on-accent would be a much
+     smaller contrast jump than dark-violet-on-accent. */
+  --accent-fg: oklch(12% 0.02 275);
+  --accent-ring: oklch(62% 0.19 275 / 0.35);
+  /* Soft outer glow for the primary button -- the "subtle glow" cue
+     that reads as premium/lit-up rather than a flat filled rectangle,
+     used only on the one primary accent button, not everywhere. */
+  --accent-glow: 0 0 0 1px oklch(62% 0.19 275 / 0.4), 0 4px 20px oklch(62% 0.19 275 / 0.3);
 
-  --warn-bg: oklch(93% 0.05 95);
-  --warn-fg: oklch(35% 0.08 80);
+  --warn-bg: oklch(24% 0.05 90);
+  --warn-fg: oklch(85% 0.06 85);
 
-  --hover-bg: oklch(95% 0.006 260);
+  /* Panel shadow stays subtle -- on a near-black canvas there's very
+     little ambient light for a shadow to plausibly block, so the real
+     depth cue is the --surface/--bg lightness step above; this shadow
+     is a light reinforcement, not the primary signal. */
+  --panel-shadow: 0 1px 3px oklch(0% 0 0 / 0.4), 0 4px 16px oklch(0% 0 0 / 0.3);
 
-  /* Soft panel elevation replaces the old flat 1px border -- a cool-
-     neutral, low-opacity two-layer shadow (Material-style: a tight,
-     darker layer + a wider, softer layer) reads as gentle depth rather
-     than a hard outline. */
-  --panel-shadow: 0 1px 3px oklch(20% 0.01 260 / 0.06), 0 2px 8px oklch(20% 0.01 260 / 0.05);
-
-  /* The copy-success pulse color -- a brighter, more saturated version
-     of the accent, used only for the brief success-feedback animation
-     below, never as a static token elsewhere. Deliberately stays in the
-     same indigo hue family rather than introducing a second (e.g.
-     conventional "success green") color -- "one restrained accent" is
-     the whole point of this direction. */
-  --success-pulse: oklch(70% 0.15 264);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Cool-neutral near-black, not a flat achromatic gray -- keeps the
-       same hue family (H=260) as the light theme instead of
-       desaturating to generic charcoal. */
-    --bg: oklch(14% 0.008 260);
-    --fg: oklch(93% 0.006 260);
-    --muted: oklch(62% 0.012 260);
-    --border: oklch(30% 0.012 260);
-
-    /* Brighter indigo for dark-mode contrast; --accent-fg switches to a
-       dark cool-neutral rather than white, since white-on-bright-indigo
-       reads washed out where dark-on-indigo holds real contrast. */
-    --accent: oklch(68% 0.15 264);
-    --accent-hover: oklch(74% 0.14 264);
-    --accent-active: oklch(80% 0.13 264);
-    --accent-fg: oklch(14% 0.01 260);
-    --accent-ring: oklch(68% 0.15 264 / 0.25);
-
-    --warn-bg: oklch(28% 0.05 90);
-    --warn-fg: oklch(85% 0.06 85);
-
-    --hover-bg: oklch(22% 0.012 260);
-
-    --panel-shadow: 0 1px 3px oklch(0% 0 0 / 0.35), 0 2px 8px oklch(0% 0 0 / 0.25);
-
-    --success-pulse: oklch(78% 0.14 264);
-  }
+  --success-pulse: oklch(78% 0.16 275);
 }
 
 * {
@@ -109,25 +89,29 @@ body {
 }
 
 header {
-  padding: 1.5rem 1.5rem 1rem;
+  padding: 1.75rem 1.5rem 1.1rem;
   max-width: 720px;
   margin: 0 auto;
 }
 
+/* Compressed, negative-tracked display header -- the single most
+   distinctive typographic move in the Linear/Raycast pattern: a bigger,
+   heavier, tighter headline reads as considered rather than a default
+   browser heading, without needing a second display typeface. */
 header h1 {
-  font-size: 1.375rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  margin: 0 0 0.85rem;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  margin: 0 0 1rem;
 }
 
 #search {
   width: 100%;
-  padding: 0.7rem 1rem;
+  padding: 0.75rem 1.05rem;
   font-size: 1rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--fg);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
@@ -148,7 +132,7 @@ main {
 #create-panel {
   margin: 1.25rem 0;
   padding: 1.25rem;
-  background: var(--bg);
+  background: var(--surface);
   border-radius: 12px;
   box-shadow: var(--panel-shadow);
 }
@@ -168,14 +152,17 @@ main {
 
 button {
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: 600;
   padding: 0.55rem 1.1rem;
   border-radius: 8px;
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--accent-fg);
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+  /* The primary-button glow -- see --accent-glow's own comment above. */
+  box-shadow: var(--accent-glow);
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.08s ease;
 }
 
 button:hover:not(:disabled) {
@@ -192,6 +179,7 @@ button:active:not(:disabled) {
 button:disabled {
   opacity: 0.6;
   cursor: default;
+  box-shadow: none;
   transform: none;
 }
 
@@ -201,27 +189,37 @@ button:disabled {
   background: transparent;
   color: var(--accent);
   border-style: dashed;
+  /* No glow on the secondary create-action -- reserved for the one
+     primary button, per "used sparingly." */
+  box-shadow: none;
 }
 
 #create-btn:hover:not(:disabled) {
-  background: var(--hover-bg);
+  background: var(--surface-hover);
   border-color: var(--accent-hover);
   color: var(--accent-hover);
 }
 
-/* Copy-success feedback: a brief brighter-indigo pulse on the button
-   that was just clicked, color-only (no icon) -- the button's
-   background flashes to --success-pulse and eases back to its resting
-   --accent,
-   giving positive feedback without adding a checkmark glyph. Applied/
-   removed via a small JS hook (index.html doCopy()) only on a
-   genuinely successful copy; a tracking failure or clipboard failure
-   never triggers it. Self-cleaning via the animationend listener --
-   doesn't depend on or interact with the unrelated 1500ms status-text
-   timeout already in doCopy(). */
+/* Copy-success feedback: a brief brighter-violet glow pulse on the
+   button that was just clicked, color-only (no icon) -- both the fill
+   and the glow shadow intensify together and ease back to resting,
+   giving positive feedback that matches the button's own always-on
+   glow rather than fighting it. Applied/removed via a small JS hook
+   (index.html doCopy()) only on a genuinely successful copy; a tracking
+   failure or clipboard failure never triggers it. Self-cleaning via the
+   animationend listener -- doesn't depend on or interact with the
+   unrelated 1500ms status-text timeout already in doCopy(). */
 @keyframes copy-success-pulse {
-  0% { background-color: var(--success-pulse); border-color: var(--success-pulse); }
-  100% { background-color: var(--accent); border-color: var(--accent); }
+  0% {
+    background-color: var(--success-pulse);
+    border-color: var(--success-pulse);
+    box-shadow: 0 0 0 1px oklch(78% 0.16 275 / 0.5), 0 4px 28px oklch(78% 0.16 275 / 0.45);
+  }
+  100% {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: var(--accent-glow);
+  }
 }
 
 button.pulse-success {
@@ -265,9 +263,8 @@ button.pulse-success {
    row is the fix for a real UX gap (the library view only ever showed
    a 60-char preview with no way to select/copy a prompt directly).
    Button-reset properties (background/border/font/width/text-align)
-   keep it row-like; the hover/focus rule + a slightly larger radius
-   than the old flat design is the only new visible affordance,
-   matching the softer, shadow-elevated panel treatment above. */
+   keep it row-like; hover uses the same layered --surface-hover step
+   as everywhere else on this page, not a one-off color. */
 #library-list .library-row {
   display: flex;
   justify-content: space-between;
@@ -282,12 +279,13 @@ button.pulse-success {
   text-align: left;
   cursor: pointer;
   border-radius: 8px;
+  box-shadow: none;
   transition: background-color 0.12s ease;
 }
 
 #library-list .library-row:hover,
 #library-list .library-row:focus-visible {
-  background: var(--hover-bg);
+  background: var(--surface-hover);
 }
 
 #library-list .library-row:active {
@@ -304,5 +302,9 @@ button.pulse-success {
 #library-list .count {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  /* A touch of positive tracking on secondary/numeric text -- the
+     "airy" counterweight to the header's tight negative tracking,
+     borrowed directly from Raycast's own typographic pattern. */
+  letter-spacing: 0.02em;
   flex-shrink: 0;
 }
