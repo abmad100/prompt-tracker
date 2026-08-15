@@ -9,6 +9,7 @@
 // check alone is spoofable/bypassable).
 
 const {
+  MAX_PROMPT_LEN,
   MAX_RESPONSE_BYTES,
   MAX_BODY_BYTES,
   PayloadTooLargeError,
@@ -31,8 +32,8 @@ const { sha256Hex } = require("../lib/notion.js");
 const config = { api: { bodyParser: false } };
 
 const MAX_PAGES = 50; // safety cap: 50 pages x 100 = 5,000 records
-const MAX_PROMPT_LEN = 20000; // Unicode code points, checked BEFORE any
-// chunking ever runs — this is the aggregate limit, not a per-chunk one.
+// MAX_PROMPT_LEN now lives in lib/notion.js (shared with
+// api/prompts/[id]/edit.js) -- imported above, not redefined here.
 
 function notionHeaders() {
   return {

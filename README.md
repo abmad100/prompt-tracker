@@ -2,8 +2,10 @@
 
 A small personal website for tracking reuse of saved prompts: a searchable
 library with usage counts, live full-text search, exact-match detection that
-surfaces the matched prompt for reuse, and a Copy button that copies the text
-to your clipboard and increments its usage count in Notion.
+surfaces the matched prompt for reuse, a Copy button that copies the text
+to your clipboard and increments its usage count in Notion, and an Edit
+button for correcting/improving a saved prompt's own text without resetting
+its accumulated usage count.
 
 Built per `PU-20260814-0809-7QK2` under the Hey Man Claude Code Handoff
 Standard v0.29. Full design history (16 rounds of `/gpt-review` plan
@@ -21,6 +23,13 @@ https://drive.google.com/file/d/1oCtGaFrMtgB_MC6Lc9q4SesuY5EXvXga/view
     normalized text.
   - `POST /api/prompts/:id/copy` — increments a prompt's usage count and
     sets its "Last Used" timestamp.
+  - `POST /api/prompts/:id/edit` — updates a prompt's own text (Prompt
+    Text / Normalized Text / Normalized Hash together, kept mutually
+    consistent). Deliberately never touches Count, Last Used, or Created
+    — enforced by the PATCH payload never mentioning those properties at
+    all (Notion's own partial-update semantics leave unmentioned
+    properties untouched), and independently re-verified against the
+    pre-edit record after the write, failing closed if anything changed.
 - All data lives in a single Notion database — this app has no database of
   its own.
 
@@ -90,7 +99,12 @@ had never actually been written down here before).
 6. Type the same prompt text again (exact match) in the search box.
    Confirm it's recognized (shown in the active-prompt panel, not
    offered as "create new").
-7. Delete the test record directly in Notion when you're done.
+7. Click **Edit**, change the text, click **Save**. Confirm the active
+   panel now shows the new text, the library preview updates to match,
+   and — back in Notion — **Count** and **Last Used** are still exactly
+   what they were before the edit (unchanged by editing, only by
+   copying).
+8. Delete the test record directly in Notion when you're done.
 
 ## Security model (read this before deploying)
 
@@ -185,6 +199,15 @@ styling is already external (`styles.css`).
   `ISO_8601_STRICT_RE` comment, which was already tightened once
   (diff-review round 6) specifically to stop a genuinely malformed
   date from silently passing as valid.
+- **Editing a prompt's text does not check for a collision with an
+  existing DIFFERENT record.** If you edit a prompt's text into
+  something that happens to exactly match another already-saved
+  prompt, `POST /api/prompts/:id/edit` still saves it as-is — you'll
+  end up with two records sharing the same Normalized Hash, and no
+  merge/redirect happens automatically. This is the same non-atomic,
+  best-effort risk shape already accepted above for racing create
+  requests, not a new one; it's deliberately out of scope for this
+  feature to build cross-record merge behavior.
 
 ## Data handling
 

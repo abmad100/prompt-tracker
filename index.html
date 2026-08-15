@@ -299,10 +299,24 @@
         pre.appendChild(code);
         activePanelInner.appendChild(pre);
 
+        var btnRow = document.createElement("div");
+        btnRow.className = "btn-row";
+        activePanelInner.appendChild(btnRow);
+
         var copyBtn = document.createElement("button");
         copyBtn.type = "button";
         copyBtn.textContent = "Copy";
-        activePanelInner.appendChild(copyBtn);
+        btnRow.appendChild(copyBtn);
+
+        // Secondary action, next to Copy -- lets Mose fix/improve a
+        // saved prompt's own text without losing its accumulated Count
+        // (POST /api/prompts/:id/edit deliberately never touches Count,
+        // enforced server-side, not just by client-side intent).
+        var editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn-secondary";
+        editBtn.textContent = "Edit";
+        btnRow.appendChild(editBtn);
 
         var statusEl = textEl("span", "", "copy-status");
         activePanelInner.appendChild(statusEl);
@@ -314,6 +328,112 @@
         copyBtn.addEventListener("click", function () {
           doCopy(prompt, copyBtn, statusEl);
         });
+        editBtn.addEventListener("click", function () {
+          renderEditMode(prompt);
+        });
+      }
+
+      // Swaps the active panel's view-mode display (pre/code + Copy/
+      // Edit) for an inline edit surface -- a textarea pre-filled with
+      // the prompt's current text, plus Save/Cancel. Deliberately
+      // rebuilds activePanelInner from scratch via the same
+      // clearChildren/createElement pattern showActive() already uses,
+      // rather than trying to keep two parallel DOM states in sync.
+      function renderEditMode(prompt) {
+        clearChildren(activePanelInner);
+
+        var textarea = document.createElement("textarea");
+        textarea.className = "edit-textarea";
+        textarea.value = prompt.promptText; // .value, not textContent/innerHTML --
+        // the correct property for a <textarea>'s own editable content;
+        // still never touches innerHTML anywhere.
+        activePanelInner.appendChild(textarea);
+
+        var errorEl = textEl("p", "", "warning");
+        errorEl.hidden = true;
+        activePanelInner.appendChild(errorEl);
+
+        var btnRow = document.createElement("div");
+        btnRow.className = "btn-row";
+        activePanelInner.appendChild(btnRow);
+
+        var saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.textContent = "Save";
+        btnRow.appendChild(saveBtn);
+
+        var cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "btn-secondary";
+        cancelBtn.textContent = "Cancel";
+        btnRow.appendChild(cancelBtn);
+
+        // Discards the edited draft entirely -- nothing was saved yet,
+        // so reverting to the ORIGINAL (unedited) prompt object is
+        // always correct here, not the textarea's current value.
+        cancelBtn.addEventListener("click", function () {
+          showActive(prompt);
+        });
+
+        saveBtn.addEventListener("click", function () {
+          var newText = textarea.value;
+          // Client-side hint only -- a real, authoritative check happens
+          // server-side regardless (same trim/non-empty/length rules
+          // POST /api/prompts already enforces for create).
+          if (newText.trim().length === 0) {
+            errorEl.textContent = "Prompt text can't be empty.";
+            errorEl.hidden = false;
+            return;
+          }
+          doEdit(prompt, newText, saveBtn, cancelBtn, errorEl);
+        });
+
+        textarea.focus();
+      }
+
+      async function doEdit(prompt, newText, saveBtn, cancelBtn, errorEl) {
+        saveBtn.disabled = true;
+        cancelBtn.disabled = true;
+        errorEl.hidden = true;
+        try {
+          var res = await fetch("/api/prompts/" + encodeURIComponent(prompt.id) + "/edit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: newText }),
+          });
+          if (!res.ok) {
+            var err = await res.json().catch(function () {
+              return {};
+            });
+            // Re-enable and keep the textarea's own (unsaved, edited)
+            // content in place -- a failed save must never silently
+            // discard what was typed, so the user can retry without
+            // retyping (unlike Cancel, which deliberately DOES discard).
+            errorEl.textContent = err.error || "Could not save the edit.";
+            errorEl.hidden = false;
+            saveBtn.disabled = false;
+            cancelBtn.disabled = false;
+            return;
+          }
+          var data = await res.json();
+          // The response carries the FULL updated record (promptText,
+          // normalizedText, normalizedHash all changed by an edit,
+          // unlike a copy) -- reconcile via the same shared, unit-
+          // tested upsertById helper createPrompt() already uses,
+          // rather than patching individual fields by hand.
+          state.prompts = window.PromptMatching.upsertById(state.prompts, data.prompt);
+          renderLibrary(); // the library's own preview text may have changed
+          showActive(data.prompt); // back to view mode, showing the new text
+        } catch (e) {
+          // A network-level failure throws inside fetch() itself, not a
+          // rejected/non-ok response -- same class of gap already fixed
+          // for createPrompt()/fetchPrompts() (diff-review round 1 P1
+          // finding pattern, applied here from the start).
+          errorEl.textContent = "Could not save the edit — a network error occurred.";
+          errorEl.hidden = false;
+          saveBtn.disabled = false;
+          cancelBtn.disabled = false;
+        }
       }
 
       // Purely visual (Mode 3, no automated test -- same scope as the

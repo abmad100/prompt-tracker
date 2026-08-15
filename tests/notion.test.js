@@ -134,6 +134,37 @@ test("buildCopyUpdatePayload sets BOTH Count and Last Used", () => {
 });
 
 // ---------------------------------------------------------------------
+// buildEditUpdatePayload -- the mechanism (not just documentation) that
+// leaves Count/Last Used/Created untouched: Notion's own partial-update
+// semantics only touch properties genuinely present in a PATCH request.
+// ---------------------------------------------------------------------
+
+test("buildEditUpdatePayload sets Prompt Text/Normalized Text/Normalized Hash to match the new text", () => {
+  const payload = notion.buildEditUpdatePayload("  Improved Prompt  ");
+  const titleText = payload.properties["Prompt Text"].title
+    .map((t) => t.text.content)
+    .join("");
+  assert.equal(titleText, "  Improved Prompt  "); // original casing/whitespace preserved, not trimmed
+  const normText = payload.properties["Normalized Text"].rich_text
+    .map((t) => t.text.content)
+    .join("");
+  assert.equal(normText, "improved prompt");
+  const hash = payload.properties["Normalized Hash"].rich_text[0].text.content;
+  assert.equal(hash, notion.sha256Hex("improved prompt"));
+});
+
+test("buildEditUpdatePayload's properties object does NOT contain a Count, Last Used, or Created key at all", () => {
+  // Not just "unset" -- genuinely ABSENT. This is the real enforcement
+  // mechanism for "editing must never change the usage count," not
+  // just documentation of intent: Notion's partial-update semantics
+  // only touch properties actually present in a PATCH request body.
+  const payload = notion.buildEditUpdatePayload("some prompt text");
+  assert.equal("Count" in payload.properties, false);
+  assert.equal("Last Used" in payload.properties, false);
+  assert.equal("Created" in payload.properties, false);
+});
+
+// ---------------------------------------------------------------------
 // buildCreatePayload / buildFindByHashQuery
 // ---------------------------------------------------------------------
 

@@ -318,6 +318,61 @@ button:disabled {
   color: var(--accent-hover);
 }
 
+/* Groups Copy+Edit (and Save+Cancel) side by side with real spacing --
+   previously these buttons just sat directly adjacent with no gap
+   control, relying on inline default spacing alone. */
+.btn-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Lower-emphasis button variant (Edit, Cancel) -- a plain outline/ghost
+   treatment so the ONE primary accent action in a given row (Copy,
+   Save) stays visually dominant, matching "one restrained accent used
+   sparingly" rather than every button competing for attention equally. */
+button.btn-secondary {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+button.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--muted);
+  color: var(--fg);
+}
+
+button.btn-secondary:active:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--muted);
+}
+
+.edit-textarea {
+  display: block;
+  width: 100%;
+  min-height: 10rem;
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.edit-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
 /* Copy-success feedback: a brief brighter-violet glow pulse on the
    button that was just clicked, color-only (no icon) -- both the fill
    and the glow shadow intensify together and ease back to resting,
@@ -345,9 +400,14 @@ button.pulse-success {
 }
 
 .copy-status {
-  margin-left: 0.75rem;
+  /* Sits below the .btn-row now (previously inline right after a single
+     Copy button, when there was nothing else in that row to separate
+     it from) -- .btn-row's own margin-bottom already provides the gap
+     above this, so no margin is needed here. */
+  display: block;
   color: var(--muted);
   font-size: 0.9rem;
+  min-height: 1.2em; /* reserves its own line even when empty, so text appearing/disappearing doesn't shift anything below it */
 }
 
 .warning {
