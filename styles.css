@@ -1,25 +1,91 @@
+/* styles.css — Prompt Tracker
+   "Warm & Personal" visual direction (2026-08-15) -- this is Mose's own
+   personal tool, not a public-facing product, so the palette leans warm/
+   cream rather than the generic blue-on-white SaaS default. Colors are
+   defined in OKLCH (oklch(L% C H)): stepping the L (lightness) channel by
+   a fixed amount produces a consistent perceived brightness step
+   regardless of hue, which is what makes deriving hover/active states
+   and a matching dark theme from one accent hue (H=40-45, warm terracotta/
+   amber) a formula rather than hand-picked hex values per state. Browser
+   support (Chrome 111+, Safari 15.4+, Firefox 113+) covers ~93-95% of
+   users as of 2026 -- no hex fallback is provided, matching this app's
+   own personal-use-only scope (Deployment Protection already restricts
+   access to Mose's own account, so an old-browser visitor isn't a real
+   audience to design around). */
+
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #6b6b6b;
-  --border: #ddd;
-  --accent: #2563eb;
-  --warn-bg: #fff3cd;
-  --warn-fg: #664d03;
-  --hover-bg: #f2f2f2;
+
+  /* Warm cream background, warm near-black text -- H=40/80 keeps every
+     token in the same warm hue family rather than a neutral gray. */
+  --bg: oklch(97% 0.01 80);
+  --fg: oklch(24% 0.02 40);
+  --muted: oklch(52% 0.015 60);
+  --border: oklch(88% 0.015 70);
+
+  /* Terracotta/amber accent, with hover/active derived by stepping L
+     down (darker = more "pressed") at the same C/H -- not separate,
+     hand-picked colors. --accent-fg is the text/icon color placed ON
+     the accent (e.g. button labels), chosen for contrast against the
+     mid-lightness accent rather than assuming plain white always works. */
+  --accent: oklch(62% 0.15 45);
+  --accent-hover: oklch(56% 0.16 45);
+  --accent-active: oklch(50% 0.17 45);
+  --accent-fg: oklch(99% 0.005 80);
+  /* Explicit translucent token for the search-focus ring, rather than
+     CSS relative color syntax (oklch(from var(--accent) ...)) -- that
+     syntax has narrower browser support than plain oklch() (~Chrome
+     119+/Safari 16.4+/Firefox 128+ vs. 111+/15.4+/113+ for oklch()
+     itself), and an unsupported relative-color value makes the WHOLE
+     box-shadow declaration invalid, silently dropping the focus ring
+     entirely -- an accessibility regression, not just a missed visual
+     effect. A second explicit token carries no such risk. */
+  --accent-ring: oklch(62% 0.15 45 / 0.18);
+
+  --warn-bg: oklch(93% 0.05 85);
+  --warn-fg: oklch(35% 0.08 70);
+
+  --hover-bg: oklch(94% 0.015 75);
+
+  /* Soft panel elevation replaces the old flat 1px border -- a warm-
+     tinted, low-opacity two-layer shadow (Material-style: a tight,
+     darker layer + a wider, softer layer) reads as gentle depth rather
+     than a hard outline. */
+  --panel-shadow: 0 1px 3px oklch(40% 0.02 50 / 0.08), 0 2px 8px oklch(40% 0.02 50 / 0.06);
+
+  /* The copy-success pulse color -- a brighter, more saturated version
+     of the accent, used only for the brief success-feedback animation
+     below, never as a static token elsewhere. */
+  --success-pulse: oklch(74% 0.16 55);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14161a;
-    --fg: #e6e6e6;
-    --muted: #9a9a9a;
-    --border: #34383f;
-    --accent: #6ea8ff;
-    --warn-bg: #4a3b0a;
-    --warn-fg: #ffe08a;
-    --hover-bg: #23262c;
+    /* Warm dark brown-black, not a flat neutral gray -- keeps the same
+       hue family (H=50/70) as the light theme instead of desaturating
+       to generic charcoal. */
+    --bg: oklch(20% 0.015 50);
+    --fg: oklch(92% 0.01 70);
+    --muted: oklch(65% 0.02 60);
+    --border: oklch(32% 0.02 55);
+
+    /* Brighter amber for dark-mode contrast; --accent-fg switches to a
+       dark warm-brown rather than white, since white-on-bright-amber
+       reads washed out where dark-on-amber holds real contrast. */
+    --accent: oklch(68% 0.14 45);
+    --accent-hover: oklch(74% 0.14 45);
+    --accent-active: oklch(80% 0.13 45);
+    --accent-fg: oklch(15% 0.02 50);
+    --accent-ring: oklch(68% 0.14 45 / 0.25);
+
+    --warn-bg: oklch(30% 0.05 70);
+    --warn-fg: oklch(85% 0.06 75);
+
+    --hover-bg: oklch(26% 0.02 55);
+
+    --panel-shadow: 0 1px 3px oklch(0% 0 0 / 0.35), 0 2px 8px oklch(0% 0 0 / 0.25);
+
+    --success-pulse: oklch(78% 0.15 55);
   }
 }
 
@@ -36,29 +102,33 @@ body {
 }
 
 header {
-  padding: 1.25rem 1.5rem 0.75rem;
+  padding: 1.5rem 1.5rem 1rem;
   max-width: 720px;
   margin: 0 auto;
 }
 
 header h1 {
-  font-size: 1.25rem;
-  margin: 0 0 0.75rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.85rem;
 }
 
 #search {
   width: 100%;
-  padding: 0.65rem 0.9rem;
+  padding: 0.7rem 1rem;
   font-size: 1rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
+  border-radius: 10px;
+  background: var(--bg);
   color: var(--fg);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 #search:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 main {
@@ -69,16 +139,17 @@ main {
 
 #active-panel,
 #create-panel {
-  margin: 1rem 0;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  margin: 1.25rem 0;
+  padding: 1.25rem;
+  background: var(--bg);
+  border-radius: 14px;
+  box-shadow: var(--panel-shadow);
 }
 
 #active-panel pre {
   white-space: pre-wrap;
   word-break: break-word;
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.85rem;
   max-height: 40vh;
   overflow-y: auto;
 }
@@ -90,17 +161,31 @@ main {
 
 button {
   font-size: 0.95rem;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
+  font-weight: 500;
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button:active:not(:disabled) {
+  background: var(--accent-active);
+  border-color: var(--accent-active);
+  transform: scale(0.97);
 }
 
 button:disabled {
   opacity: 0.6;
   cursor: default;
+  transform: none;
 }
 
 #create-btn {
@@ -109,6 +194,30 @@ button:disabled {
   background: transparent;
   color: var(--accent);
   border-style: dashed;
+}
+
+#create-btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
+/* Copy-success feedback: a brief warm-amber pulse on the button that
+   was just clicked, color-only (no icon) -- the button's background
+   flashes to --success-pulse and eases back to its resting --accent,
+   giving positive feedback without adding a checkmark glyph. Applied/
+   removed via a small JS hook (index.html doCopy()) only on a
+   genuinely successful copy; a tracking failure or clipboard failure
+   never triggers it. Self-cleaning via the animationend listener --
+   doesn't depend on or interact with the unrelated 1500ms status-text
+   timeout already in doCopy(). */
+@keyframes copy-success-pulse {
+  0% { background-color: var(--success-pulse); border-color: var(--success-pulse); }
+  100% { background-color: var(--accent); border-color: var(--accent); }
+}
+
+button.pulse-success {
+  animation: copy-success-pulse 0.6s ease-out;
 }
 
 .copy-status {
@@ -120,14 +229,14 @@ button:disabled {
 .warning {
   background: var(--warn-bg);
   color: var(--warn-fg);
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
   font-size: 0.9rem;
   margin: 0.5rem 0;
 }
 
 #library {
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
 }
 
 #library-list {
@@ -140,30 +249,41 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
-/* Real <button>, styled to look like the plain row it replaced — a
-   clickable library row is the fix for a real UX gap (the library view
-   only ever showed a 60-char preview with no way to select/copy a
-   prompt directly). Button-reset properties (background/border/font/
-   width/text-align) keep it visually identical to the old <li>; the
-   hover/focus rule is the only new visible affordance. */
+#library-list li:last-child {
+  border-bottom: none;
+}
+
+/* Real <button>, styled to look like a plain row -- a clickable library
+   row is the fix for a real UX gap (the library view only ever showed
+   a 60-char preview with no way to select/copy a prompt directly).
+   Button-reset properties (background/border/font/width/text-align)
+   keep it row-like; the hover/focus rule + a slightly larger radius
+   than the old flat design is the only new visible affordance,
+   matching the softer, warmer panel treatment above. */
 #library-list .library-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
   width: 100%;
-  padding: 0.6rem 0.25rem;
+  padding: 0.7rem 0.6rem;
   background: none;
   border: none;
   font: inherit;
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 8px;
+  transition: background-color 0.12s ease;
 }
 
 #library-list .library-row:hover,
 #library-list .library-row:focus-visible {
   background: var(--hover-bg);
+}
+
+#library-list .library-row:active {
+  transform: none; /* row press-feedback stays as a background change, not a scale -- scaling a full-width row looks like a layout jump, unlike a compact button */
 }
 
 #library-list .preview {

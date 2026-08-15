@@ -277,6 +277,27 @@
         });
       }
 
+      // Purely visual (Mode 3, no automated test -- same scope as the
+      // rest of styles.css, which has no dedicated tests either). Adds
+      // the CSS animation class, then removes it once the animation
+      // genuinely finishes rather than on a guessed timeout -- avoids
+      // ever leaving the class stuck if the browser throttles/skips the
+      // animation (e.g. prefers-reduced-motion or a backgrounded tab),
+      // and avoids re-triggering on a rapid double-click by restarting
+      // cleanly each time (remove-then-reflow-then-add).
+      function pulseSuccess(btn) {
+        btn.classList.remove("pulse-success");
+        void btn.offsetWidth; // force reflow so a restart is recognized
+        btn.classList.add("pulse-success");
+        btn.addEventListener(
+          "animationend",
+          function () {
+            btn.classList.remove("pulse-success");
+          },
+          { once: true }
+        );
+      }
+
       async function doCopy(prompt, btn, statusEl) {
         btn.disabled = true;
         statusEl.textContent = "";
@@ -304,6 +325,12 @@
             prompt.count = data.count;
             prompt.lastUsed = data.lastUsed;
             renderLibrary();
+            // Purely visual success feedback (warm-amber pulse, see
+            // styles.css) -- fired ONLY on this genuinely-succeeded
+            // branch, never on a tracking failure or clipboard failure.
+            // Self-cleaning via animationend, independent of the
+            // unrelated 1500ms status-text timeout below.
+            pulseSuccess(btn);
           }
         } catch (e) {
           statusEl.textContent = "Copied! (tracking failed)";
