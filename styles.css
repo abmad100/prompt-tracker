@@ -61,8 +61,15 @@
   --accent-ring: oklch(62% 0.19 275 / 0.35);
   /* Soft outer glow for the primary button -- the "subtle glow" cue
      that reads as premium/lit-up rather than a flat filled rectangle,
-     used only on the one primary accent button, not everywhere. */
-  --accent-glow: 0 0 0 1px oklch(62% 0.19 275 / 0.4), 0 4px 20px oklch(62% 0.19 275 / 0.3);
+     used only on the one primary accent button, not everywhere. The
+     third layer (inset ...) is a thin, low-opacity white highlight
+     along the TOP edge only -- a classic glossy/embossed button cue
+     (macOS/iOS-style) that adds a sense of real material without any
+     new markup; it rides along wherever --accent-glow is already used
+     (the base button rule, and the copy-success pulse's resting
+     state), so it stays consistent everywhere automatically. */
+  --accent-glow: 0 0 0 1px oklch(62% 0.19 275 / 0.4), 0 4px 20px oklch(62% 0.19 275 / 0.3),
+    inset 0 1px 0 oklch(100% 0 0 / 0.15);
 
   --warn-bg: oklch(24% 0.05 90);
   --warn-fg: oklch(85% 0.06 85);
@@ -94,11 +101,22 @@ body {
      CSS, no new markup, no JS). no-repeat is required: a gradient used
      as a background-image tiles by default like any other image, and
      without it this would visibly repeat down a tall page. */
+  /* A second, much subtler glow (half the opacity of the header one)
+     positioned lower and off-center, in the same secondary hue already
+     used on the active-panel's gradient bar -- keeps the page from
+     reading flat again once scrolled past the header, without
+     introducing a second competing focal point. Both layers share the
+     single background-repeat: no-repeat below. */
   background-image: radial-gradient(
-    ellipse 900px 480px at 50% -8%,
-    oklch(62% 0.19 275 / 0.16),
-    transparent 70%
-  );
+      ellipse 900px 480px at 50% -8%,
+      oklch(62% 0.19 275 / 0.16),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 700px 400px at 90% 60%,
+      oklch(70% 0.17 305 / 0.08),
+      transparent 70%
+    );
   background-repeat: no-repeat;
   background-color: var(--bg);
   color: var(--fg);
@@ -115,17 +133,53 @@ header {
 /* Compressed, negative-tracked display header -- the single most
    distinctive typographic move in the Linear/Raycast pattern: a bigger,
    heavier, tighter headline reads as considered rather than a default
-   browser heading, without needing a second display typeface. */
+   browser heading, without needing a second display typeface. A subtle
+   near-white-to-accent gradient text fill (a well-established "hero
+   text" signature on premium dark sites) gives it real presence beyond
+   just size/weight; width: fit-content keeps the gradient's own angle
+   tied to the text's actual measured width rather than stretching
+   across whatever the surrounding block happens to be. -webkit-
+   background-clip/-webkit-text-fill-color are still commonly needed
+   alongside the unprefixed forms for full Safari coverage on this
+   specific property, even on otherwise-modern versions. */
 header h1 {
   font-size: 1.75rem;
   font-weight: 800;
   letter-spacing: -0.025em;
   margin: 0 0 1rem;
+  width: fit-content;
+  background: linear-gradient(135deg, var(--fg) 35%, var(--accent-hover) 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Wraps the search input + its icon (see index.html) so the icon can be
+   positioned absolutely relative to the input rather than the whole
+   page, and so :focus-within lets the icon itself react to focus even
+   though the icon itself is never the focused element. */
+.search-wrap {
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none; /* clicks pass straight through to the input underneath */
+  transition: color 0.15s ease;
+}
+
+.search-wrap:focus-within .search-icon {
+  color: var(--accent);
 }
 
 #search {
   width: 100%;
-  padding: 0.75rem 1.05rem;
+  padding: 0.75rem 1.05rem 0.75rem 2.6rem; /* left padding reserves room for the icon */
   font-size: 1rem;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -137,7 +191,11 @@ header h1 {
 #search:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  /* Ring + a soft outer glow, matching the same treatment the primary
+     button already has -- the search box is the app's actual primary
+     interaction, so it earns the same "lit up" focus cue rather than a
+     plain ring alone. */
+  box-shadow: 0 0 0 3px var(--accent-ring), 0 4px 20px oklch(62% 0.19 275 / 0.18);
 }
 
 main {
@@ -160,7 +218,12 @@ main {
      let this transition actually run. */
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  /* A slight overshoot (spring-like) easing rather than a flat linear
+     ease-out -- a small, well-established "delightful microinteraction"
+     touch (the panel settles with a tiny bounce rather than just
+     stopping) that costs nothing beyond the timing function itself. */
+  transition: opacity 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* Only #active-panel gets the gradient accent bar -- it's the "you
@@ -321,12 +384,16 @@ button.pulse-success {
    keep it row-like; hover uses the same layered --surface-hover step
    as everywhere else on this page, not a one-off color. */
 #library-list .library-row {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
   width: 100%;
-  padding: 0.7rem 0.6rem;
+  /* Left padding reserves room for the ::before indicator bar up front
+     -- so it doesn't cause a layout shift by appearing/disappearing on
+     hover, only the bar's own scale/opacity change. */
+  padding: 0.7rem 0.6rem 0.7rem 1.1rem;
   background: none;
   border: none;
   font: inherit;
@@ -338,9 +405,32 @@ button.pulse-success {
   transition: background-color 0.12s ease;
 }
 
+/* Accent-colored left indicator bar, grown in from a scaleY(0) resting
+   state -- a clearer, more directional "this row is interactive/
+   focused" cue than a background tint alone, and the same accent hue
+   used everywhere else on the page rather than an unrelated highlight
+   color. */
+#library-list .library-row::before {
+  content: "";
+  position: absolute;
+  left: 0.35rem;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transition: transform 0.15s ease;
+}
+
 #library-list .library-row:hover,
 #library-list .library-row:focus-visible {
   background: var(--surface-hover);
+}
+
+#library-list .library-row:hover::before,
+#library-list .library-row:focus-visible::before {
+  transform: scaleY(1);
 }
 
 #library-list .library-row:active {
