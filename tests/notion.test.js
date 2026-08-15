@@ -371,6 +371,49 @@ test("sameInstant correctly rejects genuinely different instants, even in the sa
 });
 
 // ---------------------------------------------------------------------
+// sameMinute -- confirmed live 2026-08-15, immediately after deploying
+// the sameInstant fix above: Notion's "date" property discards
+// sub-minute precision on write, so sameInstant's exact-millisecond
+// comparison could never pass against a real round-tripped value even
+// once the Z/+00:00 notation mismatch was fixed. The real production
+// scenario: this app sends a full-precision timestamp, Notion echoes
+// back that same value floored to the minute.
+// ---------------------------------------------------------------------
+
+test("sameMinute treats a full-precision write and Notion's minute-floored echo as equal (the exact live production scenario)", () => {
+  assert.equal(
+    notion.sameMinute("2026-08-15T01:52:37.432Z", "2026-08-15T01:52:00.000+00:00"),
+    true
+  );
+});
+
+test("sameMinute is still true for two values in the same minute regardless of which notation each uses", () => {
+  assert.equal(
+    notion.sameMinute("2026-08-15T01:52:59.999Z", "2026-08-15T01:52:00.001+00:00"),
+    true
+  );
+});
+
+test("sameMinute treats the identical string as equal (trivial case)", () => {
+  assert.equal(
+    notion.sameMinute("2026-08-15T01:17:00.000Z", "2026-08-15T01:17:00.000Z"),
+    true
+  );
+});
+
+test("sameMinute correctly rejects values in genuinely different minutes", () => {
+  // One millisecond apart but straddling a minute boundary.
+  assert.equal(
+    notion.sameMinute("2026-08-15T01:52:59.999Z", "2026-08-15T01:53:00.000Z"),
+    false
+  );
+  assert.equal(
+    notion.sameMinute("2026-08-15T01:17:00.000Z", "2020-01-01T00:00:00.000Z"),
+    false
+  );
+});
+
+// ---------------------------------------------------------------------
 // readBodyWithLimit — streaming, single-response-safe
 // ---------------------------------------------------------------------
 

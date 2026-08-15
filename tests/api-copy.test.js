@@ -323,6 +323,60 @@ test("succeeds (200) when Notion's PATCH response echoes Last Used in +00:00 for
   });
 });
 
+test("succeeds (200) when Notion's PATCH response echoes Last Used floored to the minute (seconds/ms zeroed) -- the exact real production failure that survived the +00:00 fix, confirmed live 2026-08-15", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    let patchBody = null;
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        patchBody = JSON.parse(opts.body);
+        // Real Notion behavior, confirmed live via a direct database
+        // query on the actual production table: this app sends a
+        // full-precision timestamp (whatever real instant the test
+        // happens to run at), but Notion's "date" property only stores
+        // minute granularity -- every real read-back observed ended in
+        // exactly ":00.000", never the true seconds/ms this app sent.
+        // Floor the REAL sent timestamp here (not a hardcoded minute)
+        // so this test is correct regardless of what wall-clock minute
+        // it happens to run in. The sameInstant() fix alone (+00:00-
+        // vs-Z notation) was necessary but not sufficient: this exact
+        // scenario still 502'd until sameMinute replaced it.
+        const sentIso = patchBody.properties["Last Used"].date.start;
+        const flooredMs = Math.floor(new Date(sentIso).getTime() / 60000) * 60000;
+        const floored = new Date(flooredMs).toISOString().replace("Z", "+00:00");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...page,
+            properties: {
+              ...page.properties,
+              Count: { number: 5 },
+              "Last Used": { date: { start: floored } },
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.count, 5);
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("a transport-level failure on the GET (fetch throws, not just a bad status) degrades to a clean 502, never crashes and is not misreported as 404 (diff-review round 1 P1, status distinction hardened round 4 P2)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;
