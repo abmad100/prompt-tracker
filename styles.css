@@ -82,7 +82,25 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  /* Ambient glow: a large, very soft accent-tinted radial gradient
+     bleeding down from just above the viewport, fading to transparent
+     over the flat --bg floor. This single addition is doing most of
+     the "flourish" work Mose asked for -- it's the signature move on
+     Vercel/Linear/Raycast's own marketing surfaces (a colored glow
+     anchored to one edge, never centered/symmetric, never opaque
+     enough to read as a shape) and turns a flat single-color canvas
+     into something with real atmosphere at essentially zero risk (pure
+     CSS, no new markup, no JS). no-repeat is required: a gradient used
+     as a background-image tiles by default like any other image, and
+     without it this would visibly repeat down a tall page. */
+  background-image: radial-gradient(
+    ellipse 900px 480px at 50% -8%,
+    oklch(62% 0.19 275 / 0.16),
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  background-color: var(--bg);
   color: var(--fg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
@@ -135,6 +153,43 @@ main {
   background: var(--surface);
   border-radius: 12px;
   box-shadow: var(--panel-shadow);
+  /* Entrance animation, not an instant hidden->visible toggle -- see
+     .panel-entering below and the revealPanel() JS helper that toggles
+     it. Resting state is fully opaque/settled; .panel-entering is the
+     STARTING state a reveal begins from, removed one frame later to
+     let this transition actually run. */
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+/* Only #active-panel gets the gradient accent bar -- it's the "you
+   found it" resolved moment (an exact match, or a prompt just
+   selected/created), distinct from #create-panel's own plainer,
+   secondary call-to-action framing. overflow:hidden lets the bar
+   respect the panel's own rounded top corners without needing to
+   duplicate the radius on the bar itself; safe here since #active-panel
+   never needs to scroll AS A WHOLE (the long-prompt-text scrolling
+   already happens inside its own <pre>, independently). */
+#active-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+#active-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), oklch(70% 0.17 305));
+}
+
+#active-panel.panel-entering,
+#create-panel.panel-entering {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 #active-panel pre {
@@ -300,8 +355,16 @@ button.pulse-success {
 }
 
 #library-list .count {
-  color: var(--muted);
+  /* A small accent-tinted pill rather than bare muted text -- ties the
+     library rows back into the same accent hue used on the button/
+     focus ring/gradient bar, instead of the count being the one
+     un-styled leftover element on the page. */
+  color: var(--accent-hover);
+  background: oklch(62% 0.19 275 / 0.14);
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
   font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
   /* A touch of positive tracking on secondary/numeric text -- the
      "airy" counterweight to the header's tight negative tracking,
      borrowed directly from Raycast's own typographic pattern. */

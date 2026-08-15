@@ -79,6 +79,24 @@
         while (el.firstChild) el.removeChild(el.firstChild);
       }
 
+      // Un-hides a panel with a genuine entrance transition (fade +
+      // slight upward slide) instead of an instant hidden->visible
+      // toggle. A CSS transition can't animate across the
+      // [hidden]-triggered display:none boundary on its own, so the
+      // panel is un-hidden FIRST (making the .panel-entering starting
+      // state actually take effect and lay out), then a forced reflow
+      // (void panelEl.offsetWidth) makes the browser register that
+      // starting state before the class is removed on the next line --
+      // without the forced reflow, hiding and un-hiding the class in
+      // the same frame would collapse into one state and the browser
+      // would never observe (or animate) the transition at all.
+      function revealPanel(panelEl) {
+        panelEl.hidden = false;
+        panelEl.classList.add("panel-entering");
+        void panelEl.offsetWidth;
+        panelEl.classList.remove("panel-entering");
+      }
+
       function textEl(tag, text, className) {
         var el = document.createElement(tag);
         if (className) el.className = className;
@@ -247,12 +265,12 @@
           createBtn.onclick = function () {
             createPrompt(query);
           };
-          createPanel.hidden = false;
+          revealPanel(createPanel);
         }
       }
 
       function showActive(prompt, note) {
-        activePanel.hidden = false;
+        revealPanel(activePanel);
         clearChildren(activePanelInner);
         var pre = document.createElement("pre");
         var code = document.createElement("code");
