@@ -271,6 +271,58 @@ test("read-then-increment-then-write: PATCH payload sets Count+1 and Last Used, 
   });
 });
 
+test("succeeds (200) when Notion's PATCH response echoes Last Used in +00:00 form while the request sent Z form -- the exact real production failure, confirmed live 2026-08-15", async () => {
+  await withEnv(ENV, async () => {
+    const origFetch = global.fetch;
+    const page = realPage({ count: 4 });
+    let patchBody = null;
+    global.fetch = async (url, opts) => {
+      if (opts && opts.method === "PATCH") {
+        patchBody = JSON.parse(opts.body);
+        // Real Notion behavior, confirmed live: this app always sends
+        // "Z" (nowIso()), but Notion's response echoes the identical
+        // instant back in "+00:00" form -- a different string, the
+        // same instant. Before the sameInstant() fix, this exact
+        // mismatch made a genuinely successful write report as
+        // "tracking failed" to the user.
+        const sentZ = patchBody.properties["Last Used"].date.start;
+        const echoedOffset = sentZ.replace("Z", "+00:00");
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...page,
+            properties: {
+              ...page.properties,
+              Count: { number: 5 },
+              "Last Used": { date: { start: echoedOffset } },
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => page };
+    };
+    try {
+      const handler = loadHandler();
+      const req = fakeReq({
+        method: "POST",
+        headers: { origin: "https://example.vercel.app" },
+        query: { id: VALID_ID },
+      });
+      const res = fakeRes();
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.count, 5);
+      // The response reports Notion's own value verbatim (+00:00 form)
+      // -- this test isn't asserting the app rewrites it to match what
+      // was sent, only that the mismatch no longer blocks success.
+      assert.ok(res.body.lastUsed.endsWith("+00:00"));
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+});
+
 test("a transport-level failure on the GET (fetch throws, not just a bad status) degrades to a clean 502, never crashes and is not misreported as 404 (diff-review round 1 P1, status distinction hardened round 4 P2)", async () => {
   await withEnv(ENV, async () => {
     const origFetch = global.fetch;

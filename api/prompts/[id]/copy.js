@@ -9,6 +9,7 @@ const {
   parseCount,
   isSameOrigin,
   nowIso,
+  sameInstant,
   isValidPageId,
   buildCopyUpdatePayload,
   isValidPromptRecordShape,
@@ -206,15 +207,19 @@ module.exports = async function handler(req, res) {
   }
 
   const patched = parseNotionPage(patchedPage);
-  // Exact string comparison, deliberately — by the time patched.lastUsed
-  // reaches here it has already passed isValidIso8601's own strict
-  // canonical-form check (inside isValidPromptRecordShape, above), and
-  // within that exact format exact-string-equality and semantic-
-  // instant-equality are the same thing (see lib/notion.js's own
-  // ISO_8601_STRICT_RE comment for the full reasoning and the
-  // disclosed, unverified Notion-date-round-trip-fidelity assumption
-  // this ultimately rests on — diff-review round 6 P1 finding).
-  if (patched.count !== currentCount + 1 || patched.lastUsed !== ts) {
+  // Semantic instant comparison, NOT exact string equality — corrected
+  // 2026-08-15 after a real production failure. isValidIso8601 (called
+  // inside isValidPromptRecordShape, above) deliberately accepts TWO
+  // valid notations for the same UTC instant ("Z" and "+00:00" — see
+  // its own comment for why), so patched.lastUsed and ts can both be
+  // genuinely valid, genuinely represent the identical instant, and
+  // still be different strings: this app always sends "Z" (nowIso()),
+  // but Notion's real PATCH response was confirmed live to echo it
+  // back in "+00:00" form. A prior version of this comment claimed
+  // exact-string-equality and semantic-instant-equality were the same
+  // thing here — true only while exactly one notation was accepted;
+  // false the moment a second valid notation was (correctly) added.
+  if (patched.count !== currentCount + 1 || !sameInstant(patched.lastUsed, ts)) {
     console.error(
       "Notion page update (copy) response does not match the requested update",
       patchedPage.id

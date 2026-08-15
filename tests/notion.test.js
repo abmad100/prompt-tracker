@@ -335,6 +335,42 @@ test("isValidIso8601 rejects a genuinely non-zero offset, even with correct mill
 });
 
 // ---------------------------------------------------------------------
+// sameInstant -- confirmed live 2026-08-15: isValidIso8601 accepting
+// two notations for the same instant broke a downstream exact-string
+// comparison in api/prompts/[id]/copy.js, causing a genuinely
+// successful Notion write to report as "tracking failed."
+// ---------------------------------------------------------------------
+
+test("sameInstant treats the identical instant in Z and +00:00 form as equal", () => {
+  assert.equal(
+    notion.sameInstant("2026-08-15T01:17:00.000Z", "2026-08-15T01:17:00.000+00:00"),
+    true
+  );
+  assert.equal(
+    notion.sameInstant("2026-08-15T01:17:00.000+00:00", "2026-08-15T01:17:00.000Z"),
+    true
+  );
+});
+
+test("sameInstant treats the identical string as equal (trivial case)", () => {
+  assert.equal(
+    notion.sameInstant("2026-08-15T01:17:00.000Z", "2026-08-15T01:17:00.000Z"),
+    true
+  );
+});
+
+test("sameInstant correctly rejects genuinely different instants, even in the same notation", () => {
+  assert.equal(
+    notion.sameInstant("2026-08-15T01:17:00.000Z", "2020-01-01T00:00:00.000Z"),
+    false
+  );
+  assert.equal(
+    notion.sameInstant("2026-08-15T01:17:00.000Z", "2026-08-15T01:17:00.001Z"),
+    false
+  );
+});
+
+// ---------------------------------------------------------------------
 // readBodyWithLimit — streaming, single-response-safe
 // ---------------------------------------------------------------------
 
