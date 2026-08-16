@@ -143,16 +143,46 @@ header {
    alongside the unprefixed forms for full Safari coverage on this
    specific property, even on otherwise-modern versions. */
 header h1 {
+  margin: 0 0 1rem;
+}
+
+/* The header text is a real link back to the app's own root -- clicking
+   it does a genuine full-page navigation, not a client-side state
+   reset. That's deliberate: it's the simplest, most robust way to
+   guarantee every piece of state (the search query, an open active/
+   edit/create panel, the in-memory library copy) returns to exactly
+   what a fresh page load already produces, with no risk of some
+   overlooked piece of state lingering behind. All the header's own
+   typography -- including the gradient-fill "hero text" treatment --
+   lives here on the anchor rather than on the wrapping h1, since the
+   actual rendered glyphs are this anchor's own text content now, not
+   a direct h1 text node; keeping the styling on the element whose
+   glyphs are being clipped avoids any color-inheritance ambiguity
+   with background-clip:text below. */
+.logo-link {
+  display: inline-block;
   font-size: 1.75rem;
   font-weight: 800;
   letter-spacing: -0.025em;
-  margin: 0 0 1rem;
   width: fit-content;
+  text-decoration: none;
+  cursor: pointer;
   background: linear-gradient(135deg, var(--fg) 35%, var(--accent-hover) 100%);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+  transition: opacity 0.15s ease;
+}
+
+.logo-link:hover {
+  opacity: 0.82;
+}
+
+.logo-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 /* Wraps the search input + its icon (see index.html) so the icon can be
