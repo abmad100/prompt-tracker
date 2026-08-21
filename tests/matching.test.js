@@ -86,27 +86,51 @@ test("filterPrompts with no match returns empty array", () => {
   assert.deepEqual(filterPrompts(PROMPTS, "xyzzy-nonexistent"), []);
 });
 
-test("filterPrompts matches non-contiguous words anywhere in the prompt, not just as a single typed phrase", () => {
+test("filterPrompts matches non-contiguous terms anywhere in the prompt, not just as a single typed phrase", () => {
   // "document" is the 6th word and "bullet" the 8th of prompt 1's text
   // ("Summarize this document in three bullet points") -- "document
-  // bullet" is never a contiguous substring of it, but both words are
-  // present, so this must still match. Word order in the query doesn't
+  // bullet" is never a contiguous substring of it, but both terms are
+  // present, so this must still match. Term order in the query doesn't
   // have to match word order in the prompt either.
   const results = filterPrompts(PROMPTS, "bullet document");
   assert.equal(results.length, 1);
   assert.equal(results[0].id, "1");
 });
 
-test("filterPrompts requires ALL query words to be present (AND, not OR)", () => {
+test("filterPrompts requires ALL query terms to be present (AND, not OR)", () => {
   // "haiku" only appears in prompt 2; "entanglement" only in prompt 3.
   // Requiring both must match neither.
   assert.deepEqual(filterPrompts(PROMPTS, "haiku entanglement"), []);
 });
 
-test("filterPrompts collapses repeated/irregular whitespace between query words", () => {
+test("filterPrompts collapses repeated/irregular whitespace between query terms", () => {
   const results = filterPrompts(PROMPTS, "  bullet    document  ");
   assert.equal(results.length, 1);
   assert.equal(results[0].id, "1");
+});
+
+// Deliberate behavior lock, not a gap-filler: filterPrompts matches each
+// query term as a plain substring, never as a whole token. That's an
+// intentional, accepted tradeoff (see lib/matching.js's own docstring on
+// filterPrompts) -- these two tests exist so a future edit that "fixes"
+// this into strict word-boundary matching does so as a conscious,
+// reviewed decision, not an accidental regression nobody notices.
+test("filterPrompts intentionally matches a query term as a substring of a longer word, not just a whole word", () => {
+  const prompts = [
+    { id: "x", promptText: "Educate the user on best practices", count: 1 },
+  ];
+  // "cat" is not a standalone word anywhere in that prompt -- it only
+  // occurs inside "edu-CAT-e". This must still match.
+  assert.equal(filterPrompts(prompts, "cat").length, 1);
+});
+
+test("filterPrompts does NOT do stemming -- a query term must be a literal substring, not a shared word root", () => {
+  const prompts = [{ id: "y", promptText: "Summarize the meeting notes", count: 1 }];
+  // "summary" is not a literal substring of "summarize" (…mma-RY vs.
+  // …mma-RIZE) despite sharing a root -- this must NOT match, and a
+  // multi-term query where one term fails must reject the whole prompt.
+  assert.deepEqual(filterPrompts(prompts, "summary"), []);
+  assert.deepEqual(filterPrompts(prompts, "summary meeting"), []);
 });
 
 test("resolveSearchState: blank query is idle", () => {
