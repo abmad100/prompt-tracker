@@ -86,6 +86,29 @@ test("filterPrompts with no match returns empty array", () => {
   assert.deepEqual(filterPrompts(PROMPTS, "xyzzy-nonexistent"), []);
 });
 
+test("filterPrompts matches non-contiguous words anywhere in the prompt, not just as a single typed phrase", () => {
+  // "document" is the 6th word and "bullet" the 8th of prompt 1's text
+  // ("Summarize this document in three bullet points") -- "document
+  // bullet" is never a contiguous substring of it, but both words are
+  // present, so this must still match. Word order in the query doesn't
+  // have to match word order in the prompt either.
+  const results = filterPrompts(PROMPTS, "bullet document");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].id, "1");
+});
+
+test("filterPrompts requires ALL query words to be present (AND, not OR)", () => {
+  // "haiku" only appears in prompt 2; "entanglement" only in prompt 3.
+  // Requiring both must match neither.
+  assert.deepEqual(filterPrompts(PROMPTS, "haiku entanglement"), []);
+});
+
+test("filterPrompts collapses repeated/irregular whitespace between query words", () => {
+  const results = filterPrompts(PROMPTS, "  bullet    document  ");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].id, "1");
+});
+
 test("resolveSearchState: blank query is idle", () => {
   const r = resolveSearchState(PROMPTS, "");
   assert.equal(r.state, "idle");
